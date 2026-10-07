@@ -1,0 +1,635 @@
+// BisonsEduCore360 — Prisma schema
+// Scope: authentication + school registration + subscription foundation.
+//
+// NOTE ON EMAIL UNIQUENESS
+// Postgres `@unique` is case-sensitive. Every email is normalised to lowercase
+// in the service layer before it is written, so `Admin@School.com` and
+// `admin@school.com` cannot both exist. Do not rely on the DB alone for this.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon: pooled URL for runtime, unpooled/direct URL for migrations.
+  // Locally both may point at the same database.
+  directUrl = env("DIRECT_URL")
+}
+
+/// Billing plan the school bought. TRIAL is the 5-day free window.
+enum SubscriptionPlan {
+  TRIAL
+  MONTHLY
+  YEARLY
+}
+
+/// TRIAL = inside the free window, ACTIVE = paid and running,
+/// EXPIRED = past `expiresAt` (derived and persisted lazily on read).
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+}
+
+/// Branch status - Active branches can have students/classes, Inactive are read-only.
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A registered institution.
+///
+/// `name` … `city` are captured at registration. Everything below them is the
+/// optional half of the profile, filled in later from
+/// Admin Panel → Settings → Institute Profile. They are nullable on purpose:
+/// a school is usable the moment it registers, and the profile fills in over
+/// time (no empty-string sentinels to distinguish "unset" from "cleared").
+model School {
+  id        String   @id @default(cuid())
+  name      String
+  ownerName String
+  email     String   @unique
+  phone     String
+  country   String
+  city      String
+
+  /// Abbreviated name used on letters, ID cards and the shell brand.
+  shortName       String?
+  /// Postal address, shown on invoices, letters and certificates.
+  address         String?
+  /// Public website, printed in document footers.
+  website         String?
+  /// Tagline shown under the school name in previews.
+  motto           String?
+  /// Head of the institution, printed as the signatory on letters.
+  principal       String?
+  /// Active academic session, e.g. "2025-2026".
+  academicSession String?
+  /// Government/institute registration number.
+  instituteNo     String?
+  /// Logo URL (Cloudinary once uploads are enabled; a plain URL works today).
+  logoUrl         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  subscriptions Subscription[]
+  branches      Branch[]
+  rolePermissions RolePermission[]
+  tickets         Ticket[]
+  employees       Employee[]
+  jobLetters      JobLetter[]
+  classes         Class[]
+  subjects        Subject[]
+  subjectAssignments SubjectAssignment[]
+  students        Student[]
+  admissionLetters AdmissionLetter[]
+  families        Family[]
+  admissionEnquiries AdmissionEnquiry[]
+  visitors        Visitor[]
+  notices         Notice[]
+  events          Event[]
+  meetings        Meeting[]
+  vehicles        Vehicle[]
+  transportRoutes TransportRoute[]
+  hostelRooms     HostelRoom[]
+  timetableSlots  TimetableSlot[]
+  homework        Homework[]
+
+  @@map("schools")
+}
+
+/// A school administrator — the only self-registered account type.
+/// Students and teachers are created later by an admin (out of scope).
+model User {
+  id            String    @id @default(cuid())
+  schoolId      String
+  branchId      String?
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("Admin")
+  panel         String    @default("admin")
+  emailVerified Boolean   @default(true)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([branchId])
+  @@map("users")
+}
+
+/// A campus/branch of a school. Every school has at least one branch created on registration.
+model Branch {
+  id          String       @id @default(cuid())
+  schoolId    String
+  name        String
+  code        String       @unique // Unique code like "MAIN", "CAMPUS-A"
+  address     String?
+  city        String?
+  phone       String?
+  status      BranchStatus @default(ACTIVE)
+  isMain      Boolean      @default(false) // The primary/main branch
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("branches")
+}
+
+/// A school's subscription. One row per billing period; the newest
+/// non-expired row is the school's current entitlement.
+model Subscription {
+  id        String             @id @default(cuid())
+  schoolId  String
+  plan      SubscriptionPlan
+  status    SubscriptionStatus
+  startedAt DateTime
+  expiresAt DateTime
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+/// Custom role permission configurations for a school.
+model RolePermission {
+  id          String   @id @default(cuid())
+  schoolId    String
+  role        String
+  permissions Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, role])
+  @@index([schoolId])
+  @@map("role_permissions")
+}
+
+/// Support tickets and complaints for a school.
+model Ticket {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  title       String
+  category    String
+  priority    String
+  status      String   @default("Open")
+  raisedBy    String
+  assignedTo  String?
+  due         String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("tickets")
+}
+
+/// Employee record for staff (teachers, admin, non-teaching).
+model Employee {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  employeeId  String
+  name        String
+  gender      String?  @default("Male")
+  dob         String?
+  cnic        String?
+  phone       String?
+  email       String?
+  address     String?
+  photo       String?
+  designation String
+  department  String
+  joining     String
+  type        String   @default("Permanent")
+  status      String   @default("Active")
+  documents   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("employees")
+}
+
+/// Generated employment / appointment job letters.
+model JobLetter {
+  id          String   @id @default(cuid())
+  schoolId    String
+  employeeId  String?
+  employee    String
+  designation String
+  department  String
+  date        String
+  status      String   @default("Generated")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@map("job_letters")
+}
+
+/// School class / grade definition.
+model Class {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  name        String
+  code        String
+  session     String?  @default("2025-2026")
+  sections    Json
+  teacher     String?
+  students    Int      @default(0)
+  description String?
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("classes")
+}
+
+/// School subject catalog.
+model Subject {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  name        String
+  code        String
+  type        String   @default("Core") // "Core" | "Elective" | "Activity"
+  description String?
+  status      String   @default("Active") // "Active" | "Inactive"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("subjects")
+}
+
+/// Assigned subjects to class, section and teacher.
+model SubjectAssignment {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  classId     String?
+  className   String
+  section     String
+  subjectId   String?
+  subjectName String
+  teacherId   String?
+  teacherName String
+  date        String
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([className])
+  @@map("subject_assignments")
+}
+
+/// Student record in the institution.
+model Student {
+  id            String   @id @default(cuid())
+  schoolId      String
+  branchId      String?
+  studentId     String   // e.g. STD-1001
+  admissionNo   String?  // e.g. ADM-2026-0001
+  admissionDate String?  // e.g. 2026-01-04
+  name          String   // Full student name
+  gender        String?  @default("Male")
+  dob           String?
+  blood         String?
+  photo         String?
+  session       String?  @default("2025-2026")
+  cls           String   // e.g. "Grade 1"
+  classId       String?
+  section       String   // e.g. "A"
+  father        String?
+  mother        String?
+  guardian      String?
+  phone         String?
+  email         String?
+  address       String?
+  prevSchool    String?
+  medical       String?
+  notes         String?
+  status        String   @default("Active") // "Active" | "Inactive"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([cls])
+  @@index([status])
+  @@map("students")
+}
+
+/// Generated student admission letters.
+model AdmissionLetter {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  studentId   String?
+  student     String
+  admissionNo String
+  cls         String
+  section     String
+  date        String
+  status      String   @default("Generated") // "Generated" | "Pending" | "Printed"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@map("admission_letters")
+}
+
+/// A family groups one or more students under a single guardian.
+model Family {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  familyCode  String   // e.g. FAM-001
+  guardian    String
+  phone       String?
+  email       String?
+  address     String?
+  notes       String?
+  status      String   @default("Active") // "Active" | "Inactive"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school   School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("families")
+}
+
+/// Admission pipeline tracking.
+model AdmissionEnquiry {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  applicant   String
+  guardian    String?
+  phone       String?
+  cls         String?
+  source      String?
+  followUp    String?
+  counselor   String?
+  stage       String   @default("Enquiry") // "Enquiry" | "Follow-up" | "Application" | "Test" | "Approved" | "Admitted" | "Rejected"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([stage])
+  @@map("admission_enquiries")
+}
+
+/// Front office visitors log.
+model Visitor {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  visitor     String
+  phone       String?
+  purpose     String?
+  host        String?
+  badge       String?
+  date        String?
+  inTime      String?
+  outTime     String?
+  status      String   @default("In") // "In" | "Out"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
+  @@map("visitors")
+}
+
+/// Communication notices.
+model Notice {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  title       String
+  content     String?
+  audience    String?
+  channel     String?
+  type        String?
+  date        String?
+  reach       Int      @default(0)
+  status      String   @default("Draft")
+  author      String?
+  authorId    String?
+  cls         String?
+  section     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("notices")
+}
+
+/// School events.
+model Event {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  title       String
+  type        String?
+  startDate   String?
+  endDate     String?
+  venue       String?
+  audience    String?
+  status      String   @default("Upcoming")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("events")
+}
+
+/// Meetings.
+model Meeting {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  title       String
+  date        String?
+  time        String?
+  venue       String?
+  organizer   String?
+  status      String   @default("Scheduled")
+  description String?
+  participants String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("meetings")
+}
+
+/// Transport Fleet Vehicles.
+model Vehicle {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  number       String
+  type         String   @default("Bus")
+  capacity     Int      @default(30)
+  driver       String
+  driverPhone  String?
+  route        String?
+  fitness      String?
+  status       String   @default("Active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("vehicles")
+}
+
+/// Transport Routes.
+model TransportRoute {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  name         String
+  stops        Int      @default(1)
+  distance     String?
+  students     Int      @default(0)
+  monthlyFee   Float    @default(0)
+  vehicleId    String?  // assigned fleet vehicle id
+  status       String   @default("Active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("transport_routes")
+}
+
+/// Hostel Rooms & Occupancy.
+model HostelRoom {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  hostel       String
+  room         String
+  type         String   @default("Double")
+  beds         Int      @default(2)
+  occupied     Int      @default(0)
+  warden       String?
+  monthlyFee   Float    @default(0)
+  status       String   @default("Available")
+  residents    String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@map("hostel_rooms")
+}
+
+/// School Timetable Periods/Slots.
+model TimetableSlot {
+  id        String   @id @default(cuid())
+  schoolId  String
+  branchId  String?
+  cls       String
+  section   String
+  day       String
+  period    Int
+  startTime String?
+  endTime   String?
+  subject   String
+  teacher   String
+  teacherId String?
+  room      String?
+  status    String   @default("Active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@index([schoolId, branchId])
+  @@index([schoolId, teacher])
+  @@index([schoolId, cls, section])
+  @@map("timetable_slots")
+}
+
+/// Homework / Assignments created by teachers.
+model Homework {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  title       String
+  subject     String
+  cls         String   // e.g. "Grade 10"
+  section     String   // e.g. "A"
+  teacher     String
+  teacherId   String?
+  assigned    String   // ISO date "2026-10-07"
+  due         String   // ISO date "2026-10-14"
+  instructions String?
+  status      String   @default("Open") // "Open" | "Due Soon" | "Grading" | "Closed"
+  submitted   Int      @default(0)
+  total       Int      @default(0)
+  attachments Json     @default("[]") // Array of { name, url, size, type }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  @@index([schoolId])
+  @@index([schoolId, branchId])
+  @@index([schoolId, teacher])
+  @@index([schoolId, cls, section])
+  @@map("homework")
+}
