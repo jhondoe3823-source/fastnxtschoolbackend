@@ -14,6 +14,7 @@ const {
   ERROR_CODES,
 } = require('./status');
 const { MODULES, ALL_MODULES } = require('./modules');
+const accounting = require('./accounting');
 
 module.exports = {
   ROLES,
@@ -28,4 +29,5 @@ module.exports = {
   ERROR_CODES,
   MODULES,
   ALL_MODULES,
+  ...accounting,
 };
