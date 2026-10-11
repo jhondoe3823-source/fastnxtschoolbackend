@@ -1,11 +1,10 @@
 /**
- * Cloudinary — configuration holder only.
+ * Cloudinary SDK bootstrap.
  *
- * File uploads are outside the auth/subscription scope, so nothing is wired to
- * the SDK. Credentials are read here so the upload service has a single place
- * to look once it is implemented.
+ * Credentials come from env only — never hardcode secrets in source.
  */
 
+const { v2: cloudinary } = require('cloudinary');
 const env = require('./env');
 
 const isConfigured = () =>
@@ -16,10 +15,19 @@ const isConfigured = () =>
       env.cloudinary.apiSecret
   );
 
+if (isConfigured()) {
+  cloudinary.config({
+    cloud_name: env.cloudinary.cloudName,
+    api_key: env.cloudinary.apiKey,
+    api_secret: env.cloudinary.apiSecret,
+    secure: true,
+  });
+}
+
 module.exports = {
+  cloudinary,
   isConfigured,
   cloudName: env.cloudinary.cloudName,
   apiKey: env.cloudinary.apiKey,
-  apiSecret: env.cloudinary.apiSecret,
-  folder: 'bisonseducore360',
+  folder: env.cloudinary.folder || 'bisonseducore360',
 };

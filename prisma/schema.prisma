@@ -71,6 +71,12 @@ model School {
   instituteNo     String?
   /// Logo URL (Cloudinary once uploads are enabled; a plain URL works today).
   logoUrl         String?
+  /// Editable fee voucher / invoice layout (titles, bank details, signatures…).
+  feeVoucherTemplate Json?
+  /// Editable admission letter layout (title, body, signatures…).
+  admissionLetterTemplate Json?
+  /// Editable job / appointment letter layout.
+  jobLetterTemplate Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -98,6 +104,21 @@ model School {
   hostelRooms        HostelRoom[]
   timetableSlots     TimetableSlot[]
   homework           Homework[]
+  studentAttendance  StudentAttendance[]
+  staffAttendance    StaffAttendance[]
+  leaveRequests      LeaveRequest[]
+  feeParticulars     FeeParticular[]
+  feeStructures      FeeStructure[]
+  discountTypes      DiscountType[]
+  feeInvoices        FeeInvoice[]
+  exams              Exam[]
+  examPaperSlots     ExamPaperSlot[]
+  questionPapers     QuestionPaperSubmission[]
+  examMarks          ExamMark[]
+  schoolRules        SchoolRule[]
+  employeeSalaries   EmployeeSalary[]
+  payrollRuns        PayrollRun[]
+  payslips           Payslip[]
 
   // Accounting module (double-entry ledger) — see the models at the end of the file.
   accounts        Account[]
@@ -109,7 +130,89 @@ model School {
   Invoice         Invoice[]
   BankTransaction BankTransaction[]
 
+  // Asset & Inventory modules
+  assets         Asset[]
+  inventoryItems InventoryItem[]
+  schoolFiles    SchoolFile[]
+  notifications  Notification[]
+  mailLogs       MailLog[]
+
   @@map("schools")
+}
+
+/// Every Cloudinary upload for a school — used to tally storage usage.
+model SchoolFile {
+  id           String   @id @default(cuid())
+  schoolId     String
+  uploadedById String?
+  publicId     String
+  url          String
+  folder       String   @default("")
+  resourceType String   @default("image")
+  format       String?
+  bytes        Int      @default(0)
+  width        Int?
+  height       Int?
+  originalName String?
+  purpose      String   @default("other") // logo | homework | exam-paper | employee-photo | employee-doc | student-photo | other
+  createdAt    DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, purpose])
+  @@index([publicId])
+  @@map("school_files")
+}
+
+/// In-app notification for a user (and optionally scoped to a school).
+model Notification {
+  id         String    @id @default(cuid())
+  schoolId   String
+  userId     String
+  title      String
+  message    String
+  /// user | fee | invoice | calendar | staff | chat | system | mail
+  icon       String    @default("system")
+  /// blue | green | purple | orange | red | gray
+  tone       String    @default("blue")
+  href       String?
+  readAt     DateTime?
+  /// Set once the dashboard floating toast has been shown (first time only).
+  floatedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@index([schoolId])
+  @@map("notifications")
+}
+
+/// Every outbound email — used to tally per-school mail usage.
+model MailLog {
+  id           String   @id @default(cuid())
+  schoolId     String?
+  userId       String?
+  toEmail      String
+  subject      String
+  template     String   @default("generic")
+  /// platform | school
+  brand        String   @default("platform")
+  status       String   @default("sent") // sent | failed | skipped
+  providerId   String?
+  error        String?
+  meta         Json?
+  createdAt    DateTime @default(now())
+
+  school School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([schoolId, createdAt])
+  @@index([toEmail])
+  @@map("mail_logs")
 }
 
 /// A school administrator — the only self-registered account type.
@@ -129,7 +232,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  school        School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  notifications Notification[]
 
   @@index([schoolId])
   @@index([branchId])
@@ -141,7 +245,7 @@ model Branch {
   id        String       @id @default(cuid())
   schoolId  String
   name      String
-  code      String       @unique // Unique code like "MAIN", "CAMPUS-A"
+  code      String // Unique per school, e.g. "MAIN", "CAMPUS-A"
   address   String?
   city      String?
   phone     String?
@@ -152,6 +256,16 @@ model Branch {
 
   school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
+  assets             Asset[]
+  inventoryItems     InventoryItem[]
+  journalEntries     JournalEntry[]
+  vouchers           Voucher[]
+  budgets            Budget[]
+  bankAccounts       BankAccount[]
+  bankTransactions   BankTransaction[]
+  accountingInvoices Invoice[]
+
+  @@unique([schoolId, code])
   @@index([schoolId])
   @@index([status])
   @@map("branches")
@@ -274,6 +388,8 @@ model Class {
   session     String?  @default("2025-2026")
   sections    Json
   teacher     String?
+  /// Employee.id of the class teacher (preferred over name matching).
+  teacherId   String?
   students    Int      @default(0)
   description String?
   status      String   @default("Active")
@@ -284,7 +400,100 @@ model Class {
 
   @@index([schoolId])
   @@index([status])
+  @@index([teacherId])
   @@map("classes")
+}
+
+/// Daily student attendance — one row per student per calendar day.
+model StudentAttendance {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  studentId   String
+  studentName String
+  studentCode String?
+  cls         String
+  section     String
+  date        String // YYYY-MM-DD
+  status      String // Present | Absent | Late | Leave
+  remark      String?
+  markedById  String?
+  markedBy    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, studentId, date])
+  @@index([schoolId, date])
+  @@index([schoolId, cls, section, date])
+  @@index([schoolId, studentId])
+  @@map("student_attendance")
+}
+
+/// Daily staff / employee attendance — one row per employee per calendar day.
+model StaffAttendance {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  employeeId   String
+  employeeName String
+  employeeCode String?
+  designation  String?
+  department   String?
+  date         String // YYYY-MM-DD
+  status       String // Present | Absent | Late | Leave
+  inTime       String?
+  outTime      String?
+  remark       String?
+  markedById   String?
+  markedBy     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, employeeId, date])
+  @@index([schoolId, date])
+  @@index([schoolId, employeeId])
+  @@map("staff_attendance")
+}
+
+/// Leave application from a student or teacher.
+/// Student leave is visible to admin + class teacher.
+/// Teacher leave is visible to admin only.
+model LeaveRequest {
+  id            String   @id @default(cuid())
+  schoolId      String
+  branchId      String?
+  applicantType String // "Student" | "Teacher"
+  applicantId   String
+  person        String
+  role          String
+  cls           String?
+  section       String?
+  studentId     String?
+  employeeId    String?
+  type          String // Medical | Casual | Annual | Sick
+  from          String // YYYY-MM-DD
+  to            String // YYYY-MM-DD
+  days          Int
+  reason        String
+  status        String   @default("Pending") // Pending | Approved | Rejected
+  reviewedById  String?
+  reviewedBy    String?
+  reviewNote    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId, status])
+  @@index([schoolId, applicantType])
+  @@index([schoolId, studentId])
+  @@index([schoolId, employeeId])
+  @@index([schoolId, cls, section])
+  @@map("leave_requests")
 }
 
 /// School subject catalog.
@@ -357,6 +566,8 @@ model Student {
   prevSchool    String?
   medical       String?
   notes         String?
+  /// [{ id, name, type, url, publicId?, size?, uploadDate }] — Cloudinary docs
+  documents     Json     @default("[]")
   status        String   @default("Active") // "Active" | "Inactive"
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -652,6 +863,135 @@ model Homework {
   @@map("homework")
 }
 
+/// Exam session announced by admin (Monthly / Mid-Term / Final / Quiz…).
+model Exam {
+  id              String   @id @default(cuid())
+  schoolId        String
+  branchId        String?
+  name            String
+  type            String // "Monthly" | "Mid-Term" | "Final" | "Quiz" | "Other"
+  session         String
+  startDate       String // exam window start YYYY-MM-DD
+  endDate         String // exam window end
+  paperSubmitFrom String? // teachers must submit question papers from
+  paperSubmitTo   String? // …until this date
+  classes         Json     @default("[]") // class names covered, e.g. ["Grade 9","Grade 10"]
+  classesCount    Int      @default(0)
+  status             String   @default("Draft") // Draft | Notified | Scheduled | Marks Entry | Verification | Published
+  notifyNote         String?
+  notifiedAt         String? // ISO date when teachers were notified
+  resultAnnounceDate String? // planned / actual result announcement date YYYY-MM-DD
+  publishedAt        String? // when results were published YYYY-MM-DD
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  school        School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  slots         ExamPaperSlot[]
+  submissions   QuestionPaperSubmission[]
+  marks         ExamMark[]
+
+  @@index([schoolId])
+  @@index([schoolId, branchId])
+  @@index([schoolId, status])
+  @@map("exams")
+}
+
+/// Subject-wise marks entered by teacher / admin for an exam.
+model ExamMark {
+  id           String   @id @default(cuid())
+  schoolId     String
+  examId       String
+  slotId       String?
+  branchId     String?
+  studentId    String
+  studentName  String
+  studentCode  String?
+  cls          String
+  section      String   @default("")
+  subject      String
+  obtained     Int      @default(0)
+  total        Int      @default(100)
+  grade        String?
+  remark       String?
+  enteredById  String?
+  enteredBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, examId, studentId, subject, cls, section])
+  @@index([schoolId, examId])
+  @@index([schoolId, studentId])
+  @@index([schoolId, examId, cls, section, subject])
+  @@map("exam_marks")
+}
+
+/// Class-wise paper timetable slot for an exam.
+model ExamPaperSlot {
+  id            String   @id @default(cuid())
+  schoolId      String
+  examId        String
+  branchId      String?
+  cls           String
+  section       String   @default("") // empty = whole class / all sections
+  subject       String
+  subjectId     String?
+  date          String // YYYY-MM-DD
+  startTime     String
+  endTime       String
+  room          String?
+  invigilator   String?
+  teacherId     String? // expected paper setter (employee id)
+  teacherName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school      School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  exam        Exam                       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  submissions QuestionPaperSubmission[]
+
+  @@index([schoolId])
+  @@index([schoolId, examId])
+  @@index([schoolId, teacherId])
+  @@index([schoolId, cls, subject])
+  @@map("exam_paper_slots")
+}
+
+/// Teacher-submitted question paper (file/image) for a slot or class+subject.
+model QuestionPaperSubmission {
+  id            String   @id @default(cuid())
+  schoolId      String
+  examId        String
+  slotId        String?
+  branchId      String?
+  cls           String
+  section       String   @default("")
+  subject       String
+  teacherId     String?
+  teacherName   String
+  employeeId    String?
+  status        String   @default("Submitted") // Pending | Submitted | Approved | Rejected
+  note          String?
+  files         Json     @default("[]") // [{ name, type, size, url, publicId? }]
+  submittedAt   String?
+  reviewedAt    String?
+  reviewedBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  school School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  exam   Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  slot   ExamPaperSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([schoolId, examId])
+  @@index([schoolId, teacherId])
+  @@index([schoolId, slotId])
+  @@map("question_paper_submissions")
+}
+
 // ==========================================================================
 // ACCOUNTING MODULE — double-entry ledger.
 // --------------------------------------------------------------------------
@@ -735,6 +1075,7 @@ model AccountingPeriod {
 model JournalEntry {
   id             String    @id @default(cuid())
   schoolId       String
+  branchId       String?
   no             String
   date           DateTime
   description    String
@@ -752,9 +1093,11 @@ model JournalEntry {
   vouchers         Voucher[]
   bankTransactions BankTransaction[]
   school           School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch           Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, no])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@index([schoolId, status])
   @@index([schoolId, date])
   @@map("journal_entries")
@@ -784,6 +1127,7 @@ model JournalLine {
 model Voucher {
   id             String   @id @default(cuid())
   schoolId       String
+  branchId       String?
   no             String
   kind           String // "Receipt" | "Payment"
   date           DateTime
@@ -791,6 +1135,8 @@ model Voucher {
   accountId      String
   amount         Int
   method         String   @default("Cash") // "Cash" | "Bank" | "Cheque" | "Online"
+  /// Ledger Account id used for the Cash/Bank contra leg (so UI can show which bank/cash was used).
+  cashBankAccountId String?
   reference      String   @default("")
   status         String   @default("Draft") // "Draft" | "Posted" | "Cancelled"
   journalEntryId String?
@@ -800,12 +1146,111 @@ model Voucher {
   account      Account       @relation(fields: [accountId], references: [id])
   journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
   school       School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, no])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@index([schoolId, kind])
   @@index([schoolId, status])
   @@map("vouchers")
+}
+
+/// Catalog of fee heads (Tuition, Transport, Exam, …).
+model FeeParticular {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  particular  String
+  description String?
+  amount      Int      @default(0)
+  frequency   String   @default("Monthly") // Monthly | Quarterly | Annually | One-time
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@map("fee_particulars")
+}
+
+/// Fee lines configured per session / class / section.
+model FeeStructure {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  session      String
+  cls          String
+  section      String
+  particularId String?
+  particular   String
+  amount       Int      @default(0)
+  frequency    String   @default("Monthly")
+  dueDate      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, session, cls, section])
+  @@map("fee_structures")
+}
+
+/// Named discount rules (sibling, scholarship, …).
+model DiscountType {
+  id          String   @id @default(cuid())
+  schoolId    String
+  branchId    String?
+  name        String
+  basis       String // Percentage | Fixed Amount
+  value       Int      @default(0)
+  description String?
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@map("discount_types")
+}
+
+/// School fee invoice (separate from accounting AR Invoice).
+model FeeInvoice {
+  id             String   @id @default(cuid())
+  schoolId       String
+  branchId       String?
+  invoiceNo      String
+  studentId      String?
+  student        String
+  studentCode    String?
+  cls            String
+  section        String
+  period         String
+  issue          String
+  due            String
+  total          Int      @default(0)
+  discount       Int      @default(0)
+  paid           Int      @default(0)
+  balance        Int      @default(0)
+  status         String   @default("Pending") // Paid | Partially Paid | Pending | Overdue
+  discountTypeId String?
+  discountName   String?
+  lines          Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, invoiceNo])
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@index([schoolId, studentId])
+  @@map("fee_invoices")
 }
 
 /// A student fee invoice (accounts receivable). `paid` is kept in sync with the
@@ -813,6 +1258,7 @@ model Voucher {
 model Invoice {
   id          String   @id @default(cuid())
   schoolId    String
+  branchId    String?
   studentName String
   studentCode String
   className   String
@@ -828,9 +1274,11 @@ model Invoice {
 
   account Account? @relation(fields: [accountId], references: [id])
   school  School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch  Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, invoiceNo])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@index([schoolId, status])
   @@map("invoices")
 }
@@ -840,6 +1288,7 @@ model Invoice {
 model Budget {
   id         String   @id @default(cuid())
   schoolId   String
+  branchId   String?
   name       String
   department String
   year       String
@@ -849,10 +1298,12 @@ model Budget {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  school School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, name, year])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@map("budgets")
 }
 
@@ -861,6 +1312,7 @@ model Budget {
 model BankAccount {
   id        String   @id @default(cuid())
   schoolId  String
+  branchId  String?
   name      String
   number    String   @default("")
   kind      String   @default("Bank") // "Cash" | "Bank"
@@ -872,10 +1324,133 @@ model BankAccount {
   account      Account           @relation(fields: [accountId], references: [id])
   transactions BankTransaction[]
   school       School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch       Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, name])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@map("bank_accounts")
+}
+
+/// Per-employee salary structure used when generating monthly payroll.
+model EmployeeSalary {
+  id             String   @id @default(cuid())
+  schoolId       String
+  branchId       String?
+  employeeId     String
+  employeeName   String
+  employeeCode   String   @default("")
+  designation    String   @default("")
+  department     String   @default("")
+  basic          Int      @default(0)
+  houseRent      Int      @default(0)
+  transport      Int      @default(0)
+  medical        Int      @default(0)
+  otherAllow     Int      @default(0)
+  tax            Int      @default(0)
+  providentFund  Int      @default(0)
+  otherDeduct    Int      @default(0)
+  effectiveFrom  String?
+  status         String   @default("Active") // Active | Inactive
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, employeeId])
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@map("employee_salaries")
+}
+
+/// Monthly payroll cycle for a campus (Draft → Approved → Paid).
+model PayrollRun {
+  id              String    @id @default(cuid())
+  schoolId        String
+  branchId        String?
+  month           String // YYYY-MM
+  title           String?
+  status          String    @default("Draft") // Draft | Approved | Paid
+  totalGross      Int       @default(0)
+  totalDeductions Int       @default(0)
+  totalNet        Int       @default(0)
+  employeeCount   Int       @default(0)
+  notes           String?
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payslips Payslip[]
+
+  @@index([schoolId])
+  @@index([schoolId, month])
+  @@index([schoolId, status])
+  @@map("payroll_runs")
+}
+
+/// One employee payslip inside a payroll run.
+model Payslip {
+  id            String    @id @default(cuid())
+  schoolId      String
+  branchId      String?
+  payrollRunId  String
+  employeeId    String
+  employeeName  String
+  employeeCode  String    @default("")
+  designation   String    @default("")
+  department    String    @default("")
+  month         String // YYYY-MM
+  basic         Int       @default(0)
+  houseRent     Int       @default(0)
+  transport     Int       @default(0)
+  medical       Int       @default(0)
+  otherAllow    Int       @default(0)
+  allowances    Int       @default(0)
+  tax           Int       @default(0)
+  providentFund Int       @default(0)
+  otherDeduct   Int       @default(0)
+  deductions    Int       @default(0)
+  gross         Int       @default(0)
+  net           Int       @default(0)
+  status        String    @default("Draft") // Draft | Approved | Paid
+  note          String?
+  paidAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  school     School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollRunId, employeeId])
+  @@index([schoolId])
+  @@index([schoolId, employeeId])
+  @@index([schoolId, month])
+  @@map("payslips")
+}
+
+/// School rules & regulations published by admin for teachers and/or students.
+model SchoolRule {
+  id        String   @id @default(cuid())
+  schoolId  String
+  branchId  String?
+  title     String
+  body      String
+  /// Who should see this rule: "Teachers" | "Students" | "Both"
+  audience  String   @default("Both")
+  status    String   @default("Active") // "Active" | "Inactive"
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, audience])
+  @@index([schoolId, status])
+  @@map("school_rules")
 }
 
 /// A bank reconciliation line — the book amount (from the ledger) matched
@@ -883,6 +1458,7 @@ model BankAccount {
 model BankTransaction {
   id             String   @id @default(cuid())
   schoolId       String
+  branchId       String?
   bankAccountId  String
   date           DateTime
   reference      String   @default("")
@@ -897,8 +1473,70 @@ model BankTransaction {
   bankAccount  BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
   school       School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([bankAccountId])
   @@index([schoolId])
+  @@index([schoolId, branchId])
   @@map("bank_transactions")
 }
+
+/// Capital and physical assets register
+model Asset {
+  id           String   @id @default(cuid())
+  schoolId     String
+  branchId     String?
+  name         String
+  category     String
+  tag          String
+  purchaseDate String?
+  cost         Int      @default(0)
+  location     String   @default("")
+  assignee     String   @default("")
+  warranty     String   @default("")
+  status       String   @default("In Use") // "In Use" | "In Store" | "Repair" | "Disposed"
+  notes        String?  @default("")
+  /// Linked payment voucher when purchase was posted to accounting
+  voucherId    String?
+  voucherNo    String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  school School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([schoolId, tag])
+  @@index([schoolId])
+  @@index([schoolId, branchId])
+  @@index([schoolId, status])
+  @@map("assets")
+}
+
+/// Inventory items, consumables and stock levels
+model InventoryItem {
+  id        String   @id @default(cuid())
+  schoolId  String
+  branchId  String?
+  item      String
+  category  String
+  qty       Int      @default(0)
+  unit      String   @default("pc")
+  reorder   Int      @default(0)
+  supplier  String   @default("")
+  value     Int      @default(0)
+  status    String   @default("In Stock") // "In Stock" | "Low Stock" | "Out of Stock"
+  /// Last payment voucher when stock purchase was posted to accounting
+  voucherId String?
+  voucherNo String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([schoolId, branchId])
+  @@index([schoolId, status])
+  @@map("inventory_items")
+}
+

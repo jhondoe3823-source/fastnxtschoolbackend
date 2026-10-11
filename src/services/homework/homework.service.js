@@ -5,6 +5,7 @@
 
 const { prisma } = require('../../config/database');
 const { notFound, badRequest } = require('../../utils/errors');
+const { normalizeCloudAttachments } = require('../../utils/attachments');
 
 const trimmed = (val) => String(val ?? '').trim();
 
@@ -77,7 +78,7 @@ async function createHomework(schoolId, input) {
       status: trimmed(input.status) || 'Open',
       submitted: Number(input.submitted) || 0,
       total: Number(input.total) || 0,
-      attachments: Array.isArray(input.attachments) ? input.attachments : [],
+      attachments: normalizeCloudAttachments(input.attachments),
     },
   });
   return serialize(row);
@@ -100,7 +101,7 @@ async function updateHomework(schoolId, id, input) {
   if (input.status !== undefined) data.status = trimmed(input.status);
   if (input.submitted !== undefined) data.submitted = Number(input.submitted);
   if (input.total !== undefined) data.total = Number(input.total);
-  if (input.attachments !== undefined) data.attachments = Array.isArray(input.attachments) ? input.attachments : [];
+  if (input.attachments !== undefined) data.attachments = normalizeCloudAttachments(input.attachments);
   if (input.branchId !== undefined) data.branchId = input.branchId && input.branchId !== 'all' ? input.branchId : null;
 
   const updated = await prisma.homework.update({ where: { id: existing.id }, data });

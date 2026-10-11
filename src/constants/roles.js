@@ -3,7 +3,8 @@
  * added without a database migration — the User.role column is a free string.
  */
 const ROLES = {
-  ADMIN: 'Admin',
+  /** School owner / first registrant — full access (matches frontend ROLE_DEFS). */
+  ADMIN: 'Super Admin',
   TEACHER: 'Teacher',
   STUDENT: 'Student',
   PARENT: 'Parent',

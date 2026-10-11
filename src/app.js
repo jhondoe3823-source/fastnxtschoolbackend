@@ -31,8 +31,9 @@ app.use(requestContext);
 // and before any handler can write an error body.
 app.use(cors(corsOptions));
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Larger limit so teachers can submit question paper PDFs/images as base64.
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 app.use(cookieParser());
 
 app.get('/', (req, res) => {

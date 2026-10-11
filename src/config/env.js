@@ -81,7 +81,23 @@ const env = {
 
   email: {
     enabled: bool('EMAIL_ENABLED', false),
-    from: str('EMAIL_FROM', 'no-reply@bisonstechs.com'),
+    from: str('EMAIL_FROM', 'BisonsEduCore360 <no-reply@bisonstechs.com>'),
+    replyTo: str('EMAIL_REPLY_TO', ''),
+    /** Resend API key — https://resend.com/api-keys */
+    resendApiKey: str('RESEND_API_KEY'),
+  },
+
+  brand: {
+    name: str('BRAND_NAME', 'BisonsTechs'),
+    productName: str('PRODUCT_NAME', 'BisonsEduCore360'),
+    /** Absolute HTTPS URL used in platform emails (welcome, system). */
+    logoUrl: str(
+      'BRAND_LOGO_URL',
+      'https://bisonstechs.com/logo.png'
+    ),
+    website: str('BRAND_WEBSITE', 'https://bisonstechs.com'),
+    appUrl: str('APP_URL', 'http://localhost:3000'),
+    supportEmail: str('SUPPORT_EMAIL', 'support@bisonstechs.com'),
   },
 
   cloudinary: {
@@ -89,6 +105,7 @@ const env = {
     cloudName: str('CLOUDINARY_CLOUD_NAME'),
     apiKey: str('CLOUDINARY_API_KEY'),
     apiSecret: str('CLOUDINARY_API_SECRET'),
+    folder: str('CLOUDINARY_FOLDER', 'bisonseducore360'),
   },
 };
 

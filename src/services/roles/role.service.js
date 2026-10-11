@@ -22,6 +22,16 @@ const DEFAULT_ROLES = [
   'Student',
 ];
 
+/** Legacy role strings mapped onto the canonical catalog names. */
+function roleLookupKeys(roleName) {
+  const name = String(roleName || '').trim();
+  if (!name) return [];
+  if (name === 'Admin' || name === 'Administrator') {
+    return ['Super Admin', name];
+  }
+  return [name];
+}
+
 /** Get stored role permissions for a school. */
 async function getRolePermissions(schoolId, roleName) {
   const records = await prisma.rolePermission.findMany({
@@ -34,7 +44,12 @@ async function getRolePermissions(schoolId, roleName) {
   });
 
   if (roleName) {
-    return customMap[roleName] || null;
+    for (const key of roleLookupKeys(roleName)) {
+      if (customMap[key] && typeof customMap[key] === 'object') {
+        return customMap[key];
+      }
+    }
+    return null;
   }
 
   return customMap;

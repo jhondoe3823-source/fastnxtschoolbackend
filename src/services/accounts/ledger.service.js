@@ -13,6 +13,7 @@
 
 const prisma = require('../../config/database').prisma;
 const { notFound } = require('../../utils/errors');
+const { branchWhere } = require('./branch-scope');
 
 const DEBIT_NORMAL_TYPES = new Set(['Asset', 'Expense']);
 
@@ -23,19 +24,27 @@ function signedBalance(type, debit, credit) {
 
 /**
  * Aggregate posted journal lines per account, optionally within a date range
- * and/or up to a cutoff date (`asOf`). Returns a Map<accountId, {debit, credit}>.
+ * and/or up to a cutoff date (`asOf`), and optionally one campus.
+ * Returns a Map<accountId, {debit, credit}>.
  */
-async function aggregateByAccount(schoolId, { from, to, asOf } = {}) {
+async function aggregateByAccount(schoolId, { from, to, asOf, branchId } = {}) {
   const dateFilter = {};
   if (from) dateFilter.gte = new Date(from);
   if (asOf) dateFilter.lte = new Date(asOf);
   else if (to) dateFilter.lte = new Date(to);
 
+  // groupBy only accepts relation filters via `is` / `isNot` (not shorthand fields).
   const grouped = await prisma.journalLine.groupBy({
     by: ['accountId'],
     where: {
-      accountId: { not: null },
-      entry: { schoolId, status: 'Posted', ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}) },
+      entry: {
+        is: {
+          schoolId,
+          status: 'Posted',
+          ...branchWhere(branchId),
+          ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
+        },
+      },
     },
     _sum: { debit: true, credit: true },
   });
@@ -54,13 +63,13 @@ async function aggregateByAccount(schoolId, { from, to, asOf } = {}) {
  * Current balance for every account (optionally at a cutoff date).
  * Returns [{ accountId, code, name, type, openingBalance, debit, credit, balance }].
  */
-async function accountBalances(schoolId, { asOf } = {}) {
+async function accountBalances(schoolId, { asOf, branchId } = {}) {
   const accounts = await prisma.account.findMany({
     where: { schoolId },
     orderBy: { code: 'asc' },
   });
 
-  const totals = await aggregateByAccount(schoolId, { asOf });
+  const totals = await aggregateByAccount(schoolId, { asOf, branchId });
 
   return accounts.map((account) => {
     const t = totals.get(account.id) || { debit: 0, credit: 0 };
@@ -81,13 +90,13 @@ async function accountBalances(schoolId, { asOf } = {}) {
  * Trial balance — every account with its net debit/credit movement for the
  * period. The two totals must be equal for the books to be in balance.
  */
-async function trialBalance(schoolId, { from, to } = {}) {
+async function trialBalance(schoolId, { from, to, branchId } = {}) {
   const accounts = await prisma.account.findMany({
     where: { schoolId },
     orderBy: { code: 'asc' },
   });
 
-  const totals = await aggregateByAccount(schoolId, { from, to });
+  const totals = await aggregateByAccount(schoolId, { from, to, branchId });
 
   const rows = accounts.map((account) => {
     const t = totals.get(account.id) || { debit: 0, credit: 0 };
@@ -129,13 +138,14 @@ async function trialBalance(schoolId, { from, to } = {}) {
  * General ledger for a single account — every posted line in the period with a
  * running balance, preceded by an opening-balance row.
  */
-async function generalLedger(schoolId, accountId, { from, to } = {}) {
+async function generalLedger(schoolId, accountId, { from, to, branchId } = {}) {
   const account = await prisma.account.findFirst({ where: { id: accountId, schoolId } });
   if (!account) throw notFound('Account not found.');
 
   const dateFilter = {};
   if (from) dateFilter.gte = new Date(from);
   if (to) dateFilter.lte = new Date(to);
+  const scope = branchWhere(branchId);
 
   // Opening balance = account's own opening balance + all movement strictly
   // before `from`, so the running balance continues correctly mid-period.
@@ -144,7 +154,7 @@ async function generalLedger(schoolId, accountId, { from, to } = {}) {
     const prior = await prisma.journalLine.aggregate({
       where: {
         accountId,
-        entry: { schoolId, status: 'Posted', date: { lt: new Date(from) } },
+        entry: { schoolId, status: 'Posted', ...scope, date: { lt: new Date(from) } },
       },
       _sum: { debit: true, credit: true },
     });
@@ -154,7 +164,12 @@ async function generalLedger(schoolId, accountId, { from, to } = {}) {
   const lines = await prisma.journalLine.findMany({
     where: {
       accountId,
-      entry: { schoolId, status: 'Posted', ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}) },
+      entry: {
+        schoolId,
+        status: 'Posted',
+        ...scope,
+        ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
+      },
     },
     include: { entry: { select: { no: true, date: true, description: true } } },
     orderBy: { entry: { date: 'asc' } },
@@ -191,8 +206,8 @@ async function generalLedger(schoolId, accountId, { from, to } = {}) {
  * Profit & loss — income vs expenses for the period. Includes an explicit
  * "Current Year Surplus" equity figure so the balance sheet can tie out.
  */
-async function profitAndLoss(schoolId, { from, to } = {}) {
-  const tb = await trialBalance(schoolId, { from, to });
+async function profitAndLoss(schoolId, { from, to, branchId } = {}) {
+  const tb = await trialBalance(schoolId, { from, to, branchId });
 
   const income = tb.rows.filter((r) => r.type === 'Income').map((r) => ({
     name: r.name,
@@ -219,9 +234,9 @@ async function profitAndLoss(schoolId, { from, to } = {}) {
  * Balance sheet as at a cutoff date. Assets vs Liabilities + Equity + the
  * current-period surplus, which is exactly why it always balances.
  */
-async function balanceSheet(schoolId, { asOf, from, to } = {}) {
-  const balances = await accountBalances(schoolId, { asOf });
-  const pl = await profitAndLoss(schoolId, { from, to });
+async function balanceSheet(schoolId, { asOf, from, to, branchId } = {}) {
+  const balances = await accountBalances(schoolId, { asOf, branchId });
+  const pl = await profitAndLoss(schoolId, { from, to, branchId });
 
   const pick = (type) =>
     balances
@@ -260,11 +275,14 @@ async function balanceSheet(schoolId, { asOf, from, to } = {}) {
  * Investing = long-term asset movements. Financing = liability + equity
  * movements excluding the current-year surplus.
  */
-async function cashFlow(schoolId, { from, to } = {}) {
+async function cashFlow(schoolId, { from, to, branchId } = {}) {
   const accounts = await prisma.account.findMany({ where: { schoolId } });
 
-  const openingTotals = await aggregateByAccount(schoolId, { to: from ? new Date(from) : undefined });
-  const periodTotals = await aggregateByAccount(schoolId, { from, to });
+  const openingTotals = await aggregateByAccount(schoolId, {
+    to: from ? new Date(from) : undefined,
+    branchId,
+  });
+  const periodTotals = await aggregateByAccount(schoolId, { from, to, branchId });
 
   const openingBalanceOf = (account) => {
     const t = openingTotals.get(account.id) || { debit: 0, credit: 0 };
@@ -329,34 +347,92 @@ async function cashFlow(schoolId, { from, to } = {}) {
 
 /**
  * Cash & bank summary — balances of every cash/bank account, used by the
- * Cash & Bank page.
+ * Cash & Bank page. Prefers BankAccount rows (with name + IBAN/number).
  */
-async function cashBankSummary(schoolId) {
-  const accounts = await prisma.account.findMany({
-    where: { schoolId, isActive: true },
-    orderBy: { code: 'asc' },
+async function cashBankSummary(schoolId, { branchId } = {}) {
+  // Lazy require avoids circular dependency with bank.service (which uses ledger).
+  const bankService = require('./bank.service');
+  const accounts = await bankService.listCashBankAccounts(schoolId, { branchId });
+
+  const cash = accounts.filter((a) => a.kind === 'Cash').reduce((s, a) => s + (a.balance || 0), 0);
+  const bank = accounts.filter((a) => a.kind === 'Bank').reduce((s, a) => s + (a.balance || 0), 0);
+
+  return { accounts, cash, bank, total: cash + bank };
+}
+
+/**
+ * Account statement — chronologically ordered list of all income and expense
+ * movements with running balances.
+ */
+async function accountStatement(schoolId, { from, to, type, q, branchId } = {}) {
+  const dateFilter = {};
+  if (from) dateFilter.gte = new Date(from);
+  if (to) dateFilter.lte = new Date(to);
+
+  const accountWhere = { schoolId };
+  if (type === 'Income') accountWhere.type = 'Income';
+  else if (type === 'Expense') accountWhere.type = 'Expense';
+  else accountWhere.type = { in: ['Income', 'Expense'] };
+
+  const lines = await prisma.journalLine.findMany({
+    where: {
+      account: accountWhere,
+      entry: {
+        schoolId,
+        status: 'Posted',
+        ...branchWhere(branchId),
+        ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
+      },
+    },
+    include: {
+      account: { select: { id: true, code: true, name: true, type: true } },
+      entry: { select: { no: true, date: true, description: true, reference: true } },
+    },
+    orderBy: { entry: { date: 'asc' } },
   });
 
-  const totals = await aggregateByAccount(schoolId);
+  let running = 0;
+  const rows = [];
+  for (const l of lines) {
+    const isIncome = l.account.type === 'Income';
+    const amount = isIncome ? (l.credit - l.debit) : (l.debit - l.credit);
+    const income = isIncome ? Math.max(0, amount) : 0;
+    const expense = !isIncome ? Math.max(0, amount) : 0;
+    running += income - expense;
 
-  const cashBank = accounts
-    .filter((a) => a.type === 'Asset' && /cash|bank/i.test(a.name))
-    .map((a) => {
-      const t = totals.get(a.id) || { debit: 0, credit: 0 };
-      return {
-        id: a.id,
-        code: a.code,
-        name: a.name,
-        kind: /cash/i.test(a.name) ? 'Cash' : 'Bank',
-        number: '',
-        balance: (a.openingBalance || 0) + signedBalance(a.type, t.debit, t.credit),
-      };
-    });
+    const row = {
+      id: l.id,
+      date: l.entry.date ? l.entry.date.toISOString().slice(0, 10) : '',
+      ref: l.entry.reference || l.entry.no,
+      description: l.description || l.entry.description,
+      category: l.account.name,
+      type: l.account.type,
+      income,
+      expense,
+      balance: running,
+    };
 
-  const cash = cashBank.filter((a) => a.kind === 'Cash').reduce((s, a) => s + a.balance, 0);
-  const bank = cashBank.filter((a) => a.kind === 'Bank').reduce((s, a) => s + a.balance, 0);
+    if (q) {
+      const term = q.toLowerCase();
+      const match =
+        row.description.toLowerCase().includes(term) ||
+        row.ref.toLowerCase().includes(term) ||
+        row.category.toLowerCase().includes(term);
+      if (!match) continue;
+    }
 
-  return { accounts: cashBank, cash, bank, total: cash + bank };
+    rows.push(row);
+  }
+
+  const totalIn = rows.reduce((s, r) => s + r.income, 0);
+  const totalOut = rows.reduce((s, r) => s + r.expense, 0);
+
+  return {
+    rows,
+    totalIncome: totalIn,
+    totalExpense: totalOut,
+    net: totalIn - totalOut,
+  };
 }
 
 module.exports = {
@@ -369,5 +445,6 @@ module.exports = {
   balanceSheet,
   cashFlow,
   cashBankSummary,
+  accountStatement,
 };
 

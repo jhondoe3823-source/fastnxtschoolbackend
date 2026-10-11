@@ -9,6 +9,8 @@
 const ApiResponse = require('../../utils/response');
 const asyncHandler = require('../../utils/async-handler');
 const schoolService = require('../../services/school/school.service');
+const cloudinaryService = require('../../services/cloudinary/cloudinary.service');
+const { badRequest } = require('../../utils/errors');
 
 /** GET /api/school/profile — the school that owns the current session. */
 const getProfile = asyncHandler(async (req, res) => {
@@ -22,4 +24,30 @@ const updateProfile = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'Institute profile updated successfully.', { school });
 });
 
-module.exports = { getProfile, updateProfile };
+/** POST /api/school/logo — upload logo to Cloudinary and save URL on the school. */
+const uploadLogo = asyncHandler(async (req, res) => {
+  if (!req.file) throw badRequest('No logo file uploaded. Use form field "file".');
+
+  const uploaded = await cloudinaryService.uploadBuffer(req.file.buffer, {
+    folder: `bisonseducore360/schools/${req.auth.schoolId}/logo`,
+    publicId: 'logo',
+    overwrite: true,
+    resourceType: 'image',
+    tags: [`school:${req.auth.schoolId}`, 'logo'],
+    schoolId: req.auth.schoolId,
+    uploadedById: req.auth.userId || null,
+    originalName: req.file.originalname,
+    purpose: 'logo',
+  });
+
+  const school = await schoolService.updateProfile(req.auth.schoolId, {
+    logoUrl: uploaded.url,
+  });
+
+  return ApiResponse.ok(res, 'School logo uploaded successfully.', {
+    school,
+    upload: uploaded,
+  });
+});
+
+module.exports = { getProfile, updateProfile, uploadLogo };

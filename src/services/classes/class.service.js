@@ -17,7 +17,7 @@ function serializeClass(cls) {
     session: cls.session || '2025-2026',
     sections: Array.isArray(cls.sections) ? cls.sections : ['A'],
     teacher: cls.teacher || 'Unassigned',
-    teacherId: null, // stored as teacher name only; teacherId is resolved at write time
+    teacherId: cls.teacherId || null,
     students: cls.students || 0,
     description: cls.description || '',
     status: cls.status || 'Active',
@@ -121,12 +121,14 @@ async function createClass(schoolId, input) {
 
   // Resolve teacher name: if teacherId is provided, look up the employee name.
   let teacher = trimmed(input.teacher) || 'Unassigned';
-  if (input.teacherId) {
+  let teacherId = input.teacherId || null;
+  if (teacherId) {
     const emp = await prisma.employee.findFirst({
-      where: { id: input.teacherId, schoolId },
+      where: { id: teacherId, schoolId },
       select: { name: true },
     });
     if (emp) teacher = emp.name;
+    else teacherId = null;
   }
 
   const cls = await prisma.class.create({
@@ -138,6 +140,7 @@ async function createClass(schoolId, input) {
       session,
       sections,
       teacher,
+      teacherId,
       students: Number(input.students) || 0,
       description,
       status,
@@ -168,8 +171,10 @@ async function updateClass(schoolId, id, input) {
         where: { id: input.teacherId, schoolId },
         select: { name: true },
       });
+      data.teacherId = emp ? input.teacherId : null;
       data.teacher = emp ? emp.name : (trimmed(input.teacher) || existing.teacher);
     } else {
+      data.teacherId = null;
       data.teacher = trimmed(input.teacher) || 'Unassigned';
     }
   } else if (input.teacher !== undefined) {

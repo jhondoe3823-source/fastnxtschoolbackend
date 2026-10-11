@@ -57,7 +57,8 @@ const WRITABLE_FIELDS = {
   principal: { maxLength: 120 },
   academicSession: { maxLength: 40 },
   instituteNo: { maxLength: 60 },
-  logoUrl: { maxLength: 500 },
+  // Data-URL logos (PNG/JPEG base64) need a generous limit; plain http(s) URLs are short.
+  logoUrl: { maxLength: 2_500_000 },
 };
 
 const trimmed = (value) => String(value ?? '').trim();

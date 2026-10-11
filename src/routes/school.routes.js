@@ -12,6 +12,7 @@ const express = require('express');
 const controller = require('../controllers/school/school.controller');
 const { validateUpdateProfile } = require('../validators/school/school.validator');
 const { requireAuth } = require('../middleware/auth.middleware');
+const { singleImage, handleMulterError } = require('../middleware/upload.middleware');
 
 const router = express.Router();
 
@@ -19,5 +20,11 @@ router.use(requireAuth);
 
 router.get('/profile', controller.getProfile);
 router.patch('/profile', validateUpdateProfile, controller.updateProfile);
+router.post('/logo', (req, res, next) => {
+  singleImage(req, res, (err) => {
+    if (err) return handleMulterError(err, req, res, next);
+    return controller.uploadLogo(req, res, next);
+  });
+});
 
 module.exports = router;

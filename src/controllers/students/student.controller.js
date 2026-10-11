@@ -11,6 +11,16 @@ const listStudents = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'Students loaded successfully.', { students });
 });
 
+const getMyStudent = asyncHandler(async (req, res) => {
+  const student = await studentService.getMyStudent(req.auth.schoolId, req.auth);
+  return ApiResponse.ok(res, 'Student profile loaded successfully.', { student });
+});
+
+const updateMyStudent = asyncHandler(async (req, res) => {
+  const student = await studentService.updateMyStudent(req.auth.schoolId, req.auth, req.body);
+  return ApiResponse.ok(res, 'Student profile updated successfully.', { student });
+});
+
 const getStudent = asyncHandler(async (req, res) => {
   const student = await studentService.getStudent(req.auth.schoolId, req.params.id);
   return ApiResponse.ok(res, 'Student loaded successfully.', { student });
@@ -36,6 +46,11 @@ const promoteStudents = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'Students promoted successfully.', result);
 });
 
+const listStudentDocuments = asyncHandler(async (req, res) => {
+  const documents = await studentService.listStudentDocuments(req.auth.schoolId, req.query);
+  return ApiResponse.ok(res, 'Student documents loaded successfully.', { documents });
+});
+
 const listAdmissionLetters = asyncHandler(async (req, res) => {
   const letters = await studentService.listAdmissionLetters(req.auth.schoolId, req.query);
   return ApiResponse.ok(res, 'Admission letters loaded successfully.', { letters });
@@ -58,11 +73,14 @@ const deleteAdmissionLetter = asyncHandler(async (req, res) => {
 
 module.exports = {
   listStudents,
+  getMyStudent,
+  updateMyStudent,
   getStudent,
   createStudent,
   updateStudent,
   deleteStudent,
   promoteStudents,
+  listStudentDocuments,
   listAdmissionLetters,
   generateAdmissionLetter,
   updateAdmissionLetterStatus,

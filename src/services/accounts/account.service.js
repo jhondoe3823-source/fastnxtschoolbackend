@@ -189,6 +189,7 @@ const DEFAULT_ACCOUNTS = [
   { code: '1001', name: 'Cash', type: 'Asset', parent: 'Current Assets' },
   { code: '1002', name: 'Bank Account', type: 'Asset', parent: 'Current Assets' },
   { code: '1100', name: 'Accounts Receivable', type: 'Asset', parent: 'Current Assets' },
+  { code: '1101', name: 'Inventory Stock', type: 'Asset', parent: 'Current Assets' },
   { code: '1200', name: 'Fixed Assets', type: 'Asset', parent: 'Non-current Assets' },
   { code: '2001', name: 'Accounts Payable', type: 'Liability', parent: 'Current Liabilities' },
   { code: '2002', name: 'Salaries Payable', type: 'Liability', parent: 'Current Liabilities' },
@@ -207,15 +208,42 @@ const DEFAULT_ACCOUNTS = [
   { code: '5007', name: 'Other Expenses', type: 'Expense', parent: 'Operating Expenses' },
 ];
 
+/**
+ * Ensure default ledger accounts exist. Idempotent: only inserts missing codes
+ * so existing schools still receive new system accounts (e.g. Inventory Stock).
+ */
 async function ensureDefaultChartOfAccounts(schoolId) {
-  const count = await prisma.account.count({ where: { schoolId } });
-  if (count > 0) return;
+  const existing = await prisma.account.findMany({
+    where: { schoolId },
+    select: { code: true },
+  });
+  const have = new Set(existing.map((a) => a.code));
+  const missing = DEFAULT_ACCOUNTS.filter((a) => !have.has(a.code));
+  if (missing.length === 0) return;
 
   await prisma.account.createMany({
-    data: DEFAULT_ACCOUNTS.map((a) => ({ ...a, schoolId, isSystem: true })),
+    data: missing.map((a) => ({ ...a, schoolId, isSystem: true })),
     skipDuplicates: true,
   });
-  logger.info(`Seeded default chart of accounts for school ${schoolId}.`);
+  logger.info(`Seeded ${missing.length} chart-of-accounts row(s) for school ${schoolId}.`);
+}
+
+/** Resolve a ledger account by preferred code, then by name. */
+async function findAccountByCodeOrName(schoolId, { code, name } = {}) {
+  await ensureDefaultChartOfAccounts(schoolId);
+  if (code) {
+    const byCode = await prisma.account.findFirst({
+      where: { schoolId, code, isActive: true },
+    });
+    if (byCode) return byCode;
+  }
+  if (name) {
+    const byName = await prisma.account.findFirst({
+      where: { schoolId, name, isActive: true },
+    });
+    if (byName) return byName;
+  }
+  return null;
 }
 
 module.exports = {
@@ -225,6 +253,7 @@ module.exports = {
   updateAccount,
   deleteAccount,
   ensureDefaultChartOfAccounts,
+  findAccountByCodeOrName,
   serializeAccount,
   VALID_TYPES,
 };

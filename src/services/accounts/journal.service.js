@@ -15,6 +15,7 @@ const prisma = require('../../config/database').prisma;
 const logger = require('../../utils/logger');
 const { badRequest, notFound, conflict } = require('../../utils/errors');
 const { ERROR_CODES } = require('../../constants');
+const { branchWhere, resolveBranchId } = require('./branch-scope');
 
 const VALID_STATUS = ['Draft', 'Posted', 'Cancelled'];
 
@@ -86,6 +87,7 @@ function serializeEntry(entry) {
     id: l.id,
     accountId: l.accountId,
     account: l.account ? l.account.name : l.accountId,
+    accountCode: l.account ? l.account.code : '',
     description: l.description || '',
     debit: l.debit || 0,
     credit: l.credit || 0,
@@ -95,7 +97,8 @@ function serializeEntry(entry) {
   return {
     id: entry.id,
     no: entry.no,
-    date: entry.date,
+    branchId: entry.branchId || null,
+    date: entry.date ? entry.date.toISOString().slice(0, 10) : '',
     description: entry.description,
     reference: entry.reference || '',
     status: entry.status,
@@ -108,3 +111,290 @@ function serializeEntry(entry) {
     credit: totalCredit,
   };
 }
+
+/** List journal entries for a school with optional filters. */
+async function listEntries(schoolId, { status, from, to, q, branchId } = {}) {
+  const where = { schoolId, ...branchWhere(branchId) };
+  if (status && VALID_STATUS.includes(status)) where.status = status;
+
+  if (from || to) {
+    where.date = {};
+    if (from) where.date.gte = new Date(from);
+    if (to) where.date.lte = new Date(to);
+  }
+
+  if (q) {
+    const term = trimmed(q);
+    where.OR = [
+      { no: { contains: term, mode: 'insensitive' } },
+      { description: { contains: term, mode: 'insensitive' } },
+      { reference: { contains: term, mode: 'insensitive' } },
+      { createdByName: { contains: term, mode: 'insensitive' } },
+    ];
+  }
+
+  const entries = await prisma.journalEntry.findMany({
+    where,
+    include: {
+      lines: {
+        include: {
+          account: { select: { id: true, code: true, name: true, type: true } },
+        },
+      },
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  return entries.map(serializeEntry);
+}
+
+/** Get a single journal entry by ID. */
+async function getEntry(schoolId, entryId) {
+  const entry = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+    include: {
+      lines: {
+        include: {
+          account: { select: { id: true, code: true, name: true, type: true } },
+        },
+      },
+    },
+  });
+  if (!entry) throw notFound('Journal entry not found.');
+  return serializeEntry(entry);
+}
+
+/** Create a new journal entry (Draft or Posted). */
+async function createEntry(schoolId, input, auth = {}) {
+  const description = trimmed(input.description);
+  if (!description) throw badRequest('Description is required.');
+
+  const date = input.date ? new Date(input.date) : new Date();
+  const reference = trimmed(input.reference);
+  const notes = trimmed(input.notes);
+  const status = input.status && VALID_STATUS.includes(input.status) ? input.status : 'Draft';
+
+  const rawLines = Array.isArray(input.lines) ? input.lines : [];
+  if (rawLines.length < 2) throw badRequest('Journal entry requires at least two lines.');
+
+  // Validate balanced debits and credits
+  validateLines(rawLines);
+  await loadAccounts(schoolId, rawLines);
+
+  const no = trimmed(input.no) || (await nextEntryNo(schoolId));
+  const createdByName = auth.name || auth.userName || 'System';
+  const resolvedBranchId = await resolveBranchId(schoolId, input.branchId);
+
+  const entry = await prisma.journalEntry.create({
+    data: {
+      schoolId,
+      branchId: resolvedBranchId,
+      no,
+      date,
+      description,
+      reference,
+      status,
+      notes,
+      createdById: auth.id || null,
+      createdByName,
+      postedAt: status === 'Posted' ? new Date() : null,
+      lines: {
+        create: rawLines.map((l) => ({
+          accountId: l.accountId,
+          description: trimmed(l.description) || description,
+          debit: toInt(l.debit),
+          credit: toInt(l.credit),
+        })),
+      },
+    },
+    include: {
+      lines: {
+        include: { account: { select: { id: true, code: true, name: true } } },
+      },
+    },
+  });
+
+  logger.info(`Created journal entry ${entry.no} (${status}) for school ${schoolId}.`);
+  return serializeEntry(entry);
+}
+
+/** Update an existing Draft journal entry. */
+async function updateEntry(schoolId, entryId, input, auth = {}) {
+  const existing = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+    include: { lines: true },
+  });
+  if (!existing) throw notFound('Journal entry not found.');
+  if (existing.status !== 'Draft') {
+    throw badRequest('Only Draft journal entries can be edited.');
+  }
+
+  const data = {};
+  if (input.description !== undefined) data.description = trimmed(input.description);
+  if (input.date !== undefined) data.date = new Date(input.date);
+  if (input.reference !== undefined) data.reference = trimmed(input.reference);
+  if (input.notes !== undefined) data.notes = trimmed(input.notes);
+
+  if (Array.isArray(input.lines)) {
+    validateLines(input.lines);
+    await loadAccounts(schoolId, input.lines);
+
+    await prisma.$transaction([
+      prisma.journalLine.deleteMany({ where: { entryId } }),
+      prisma.journalEntry.update({
+        where: { id: entryId },
+        data: {
+          ...data,
+          lines: {
+            create: input.lines.map((l) => ({
+              accountId: l.accountId,
+              description: trimmed(l.description) || data.description || existing.description,
+              debit: toInt(l.debit),
+              credit: toInt(l.credit),
+            })),
+          },
+        },
+      }),
+    ]);
+  } else {
+    await prisma.journalEntry.update({ where: { id: entryId }, data });
+  }
+
+  return getEntry(schoolId, entryId);
+}
+
+/** Post a draft journal entry so it takes financial effect. */
+async function postEntry(schoolId, entryId, auth = {}) {
+  const existing = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+    include: { lines: true },
+  });
+  if (!existing) throw notFound('Journal entry not found.');
+  if (existing.status === 'Posted') return serializeEntry(existing);
+  if (existing.status === 'Cancelled') throw badRequest('Cancelled entries cannot be posted.');
+
+  validateLines(existing.lines);
+
+  const updated = await prisma.journalEntry.update({
+    where: { id: entryId },
+    data: {
+      status: 'Posted',
+      postedAt: new Date(),
+    },
+    include: {
+      lines: {
+        include: { account: { select: { id: true, code: true, name: true } } },
+      },
+    },
+  });
+
+  logger.info(`Posted journal entry ${updated.no} for school ${schoolId}.`);
+  return serializeEntry(updated);
+}
+
+/** Cancel a journal entry. */
+async function cancelEntry(schoolId, entryId, auth = {}) {
+  const existing = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+    include: { lines: true },
+  });
+  if (!existing) throw notFound('Journal entry not found.');
+  if (existing.status === 'Cancelled') return serializeEntry(existing);
+
+  const updated = await prisma.journalEntry.update({
+    where: { id: entryId },
+    data: { status: 'Cancelled' },
+    include: {
+      lines: {
+        include: { account: { select: { id: true, code: true, name: true } } },
+      },
+    },
+  });
+
+  logger.info(`Cancelled journal entry ${updated.no} for school ${schoolId}.`);
+  return serializeEntry(updated);
+}
+
+/** Reverse a posted entry: creates a new journal entry with opposite debits/credits. */
+async function reverseEntry(schoolId, entryId, auth = {}) {
+  const original = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+    include: { lines: true },
+  });
+  if (!original) throw notFound('Journal entry not found.');
+  if (original.status !== 'Posted') throw badRequest('Only posted entries can be reversed.');
+
+  const existingReversal = await prisma.journalEntry.findFirst({
+    where: { schoolId, reversedFromId: entryId },
+  });
+  if (existingReversal) {
+    throw conflict('This journal entry has already been reversed.');
+  }
+
+  const no = await nextEntryNo(schoolId);
+  const reversingLines = original.lines.map((l) => ({
+    accountId: l.accountId,
+    description: `Reversal of ${original.no}: ${l.description || ''}`,
+    debit: l.credit, // flip credit to debit
+    credit: l.debit, // flip debit to credit
+  }));
+
+  const resolvedBranchId = original.branchId || (await resolveBranchId(schoolId, null));
+
+  const reversal = await prisma.journalEntry.create({
+    data: {
+      schoolId,
+      branchId: resolvedBranchId,
+      no,
+      date: new Date(),
+      description: `Reversal of ${original.no} — ${original.description}`,
+      reference: `REV-${original.no}`,
+      status: 'Posted',
+      notes: `Reversed from ${original.no}`,
+      createdById: auth.id || null,
+      createdByName: auth.name || auth.userName || 'System',
+      postedAt: new Date(),
+      reversedFromId: original.id,
+      lines: {
+        create: reversingLines,
+      },
+    },
+    include: {
+      lines: {
+        include: { account: { select: { id: true, code: true, name: true } } },
+      },
+    },
+  });
+
+  logger.info(`Created reversal entry ${reversal.no} for original entry ${original.no}.`);
+  return serializeEntry(reversal);
+}
+
+/** Delete an entry (allowed only for Drafts). */
+async function deleteEntry(schoolId, entryId) {
+  const existing = await prisma.journalEntry.findFirst({
+    where: { id: entryId, schoolId },
+  });
+  if (!existing) throw notFound('Journal entry not found.');
+  if (existing.status !== 'Draft') {
+    throw badRequest('Only Draft journal entries can be deleted.');
+  }
+
+  await prisma.journalEntry.delete({ where: { id: entryId } });
+  return { id: entryId, deleted: true };
+}
+
+module.exports = {
+  listEntries,
+  getEntry,
+  createEntry,
+  updateEntry,
+  postEntry,
+  cancelEntry,
+  reverseEntry,
+  deleteEntry,
+  nextEntryNo,
+  serializeEntry,
+  validateLines,
+  loadAccounts,
+};

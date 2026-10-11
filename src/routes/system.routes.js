@@ -8,6 +8,7 @@ const ApiResponse = require('../utils/response');
 const asyncHandler = require('../utils/async-handler');
 const { prisma } = require('../config/database');
 const env = require('../config/env');
+const cloudinaryConfig = require('../config/cloudinary');
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.get(
       environment: env.nodeEnv,
       uptimeSeconds: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
+      cloudinary: cloudinaryConfig.isConfigured(),
     });
   })
 );

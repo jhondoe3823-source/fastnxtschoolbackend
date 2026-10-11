@@ -27,13 +27,27 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const trimmed = (value) => (value === undefined || value === null ? '' : String(value).trim());
 
 /** Fields that are safe to send to the client (never passwordHash). */
-function serializeUser(user, school, subscription, now = new Date()) {
+async function serializeUser(user, school, subscription, now = new Date()) {
   let userBranch = null;
   if (user.branchId && school?.branches?.length) {
     userBranch = school.branches.find((b) => b.id === user.branchId) || null;
   }
   if (!userBranch && school?.branches?.length) {
     userBranch = school.branches.find((b) => b.isMain) || school.branches[0] || null;
+  }
+
+  let permissions = null;
+  try {
+    const roleService = require('../roles/role.service');
+    const schoolId = user.schoolId || school?.id;
+    if (schoolId && user.role) {
+      const stored = await roleService.getRolePermissions(schoolId, user.role);
+      if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
+        permissions = stored;
+      }
+    }
+  } catch (err) {
+    logger.warn(`Could not load role permissions for ${user.email}: ${err.message}`);
   }
 
   return {
@@ -56,6 +70,8 @@ function serializeUser(user, school, subscription, now = new Date()) {
     // the shell, the dashboard and the Institute Profile page always agree.
     school: schoolService.serializeSchool(school),
     subscription: subscriptionRules.toPayload(subscription, now),
+    /** Flat map `"module::action": true` from Roles & Permissions (null = use frontend defaults). */
+    permissions,
   };
 }
 

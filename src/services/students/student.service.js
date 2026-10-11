@@ -4,11 +4,32 @@
 
 const { prisma } = require('../../config/database');
 const logger = require('../../utils/logger');
-const { notFound, badRequest } = require('../../utils/errors');
+const { notFound, badRequest, forbidden } = require('../../utils/errors');
 
 const bcrypt = require('bcryptjs');
 
 const trimmed = (val) => String(val ?? '').trim();
+
+/** Normalize student document attachments — Cloudinary URLs only. */
+function normalizeDocuments(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const url = trimmed(item.url);
+    if (!url || url.startsWith('data:')) continue;
+    out.push({
+      id: trimmed(item.id) || `DOC-${Date.now()}-${out.length}`,
+      name: trimmed(item.name) || 'Document',
+      type: trimmed(item.type) || trimmed(item.name) || 'Other',
+      url,
+      publicId: trimmed(item.publicId) || undefined,
+      size: Number(item.size) || 0,
+      uploadDate: trimmed(item.uploadDate) || new Date().toISOString().slice(0, 10),
+    });
+  }
+  return out;
+}
 
 function serializeStudent(s) {
   if (!s) return null;
@@ -36,6 +57,7 @@ function serializeStudent(s) {
     prevSchool: s.prevSchool || '',
     medical: s.medical || '',
     notes: s.notes || '',
+    documents: normalizeDocuments(s.documents),
     status: s.status || 'Active',
     branchId: s.branchId || null,
     createdAt: s.createdAt,
@@ -149,6 +171,51 @@ async function listStudents(schoolId, { q, cls, section, status, gender, session
   return students.map(serializeStudent);
 }
 
+/**
+ * Resolve the Student row linked to the authenticated user (email, then name).
+ * Used by the student portal for profile / class scoping.
+ */
+async function resolveLinkedStudent(schoolId, auth = {}) {
+  if (!auth?.userId) throw forbidden('Authentication required.');
+
+  const user = await prisma.user.findFirst({
+    where: { id: auth.userId, schoolId },
+    select: { email: true, name: true },
+  });
+  if (!user) throw notFound('User not found.');
+
+  const student =
+    (await prisma.student.findFirst({
+      where: { schoolId, email: { equals: user.email, mode: 'insensitive' } },
+    })) ||
+    (await prisma.student.findFirst({
+      where: { schoolId, name: { equals: user.name, mode: 'insensitive' } },
+    }));
+
+  if (!student) throw notFound('No student profile is linked to this login.');
+  return student;
+}
+
+async function getMyStudent(schoolId, auth = {}) {
+  return serializeStudent(await resolveLinkedStudent(schoolId, auth));
+}
+
+/** Student portal self-update — contact / guardian fields only. */
+async function updateMyStudent(schoolId, auth = {}, input = {}) {
+  const existing = await resolveLinkedStudent(schoolId, auth);
+  const data = {};
+  for (const key of ['father', 'mother', 'guardian', 'phone', 'email', 'address', 'prevSchool', 'medical', 'notes']) {
+    if (input[key] !== undefined) data[key] = trimmed(input[key]) || null;
+  }
+  if (!Object.keys(data).length) return serializeStudent(existing);
+
+  const updated = await prisma.student.update({
+    where: { id: existing.id },
+    data,
+  });
+  return serializeStudent(updated);
+}
+
 async function getStudent(schoolId, id) {
   const student = await prisma.student.findFirst({
     where: {
@@ -198,6 +265,7 @@ async function createStudent(schoolId, input) {
       prevSchool: trimmed(input.prevSchool) || null,
       medical: trimmed(input.medical) || null,
       notes: trimmed(input.notes) || null,
+      documents: normalizeDocuments(input.documents),
       status: trimmed(input.status) || 'Active',
     },
   });
@@ -286,6 +354,7 @@ async function updateStudent(schoolId, id, input) {
   if (input.prevSchool !== undefined) data.prevSchool = trimmed(input.prevSchool);
   if (input.medical !== undefined) data.medical = trimmed(input.medical);
   if (input.notes !== undefined) data.notes = trimmed(input.notes);
+  if (input.documents !== undefined) data.documents = normalizeDocuments(input.documents);
   if (input.status !== undefined) data.status = trimmed(input.status);
   if (input.branchId !== undefined) {
     data.branchId = input.branchId && input.branchId !== 'all' ? input.branchId : null;
@@ -438,8 +507,68 @@ async function deleteAdmissionLetter(schoolId, id) {
   return { id, deleted: true };
 }
 
+/**
+ * Flatten all uploaded student documents across the school (for Certificates & Documents page).
+ * Optional filters: cls, section, q, branchId, type
+ */
+async function listStudentDocuments(schoolId, { cls, section, q, branchId, type } = {}) {
+  const where = { schoolId };
+  if (cls && cls !== 'All') where.cls = cls;
+  if (section && section !== 'All') where.section = section;
+  if (branchId && branchId !== 'all') where.branchId = branchId;
+
+  const students = await prisma.student.findMany({
+    where,
+    orderBy: [{ cls: 'asc' }, { name: 'asc' }],
+    select: {
+      id: true,
+      studentId: true,
+      name: true,
+      cls: true,
+      section: true,
+      photo: true,
+      status: true,
+      branchId: true,
+      documents: true,
+    },
+  });
+
+  const needle = trimmed(q).toLowerCase();
+  const typeNeedle = trimmed(type).toLowerCase();
+  const docs = [];
+
+  for (const s of students) {
+    const list = normalizeDocuments(s.documents);
+    for (const d of list) {
+      if (typeNeedle && !`${d.type} ${d.name}`.toLowerCase().includes(typeNeedle)) continue;
+      if (
+        needle &&
+        !`${s.name} ${s.studentId} ${s.cls} ${s.section} ${d.name} ${d.type}`.toLowerCase().includes(needle)
+      ) {
+        continue;
+      }
+      docs.push({
+        ...d,
+        studentDbId: s.id,
+        studentId: s.studentId,
+        studentName: s.name,
+        cls: s.cls,
+        section: s.section,
+        photo: s.photo || '',
+        status: s.status || 'Active',
+        branchId: s.branchId || null,
+      });
+    }
+  }
+
+  docs.sort((a, b) => String(b.uploadDate || '').localeCompare(String(a.uploadDate || '')));
+  return docs;
+}
+
 module.exports = {
   listStudents,
+  getMyStudent,
+  updateMyStudent,
   getStudent,
   createStudent,
   updateStudent,
@@ -449,4 +578,5 @@ module.exports = {
   generateAdmissionLetter,
   updateAdmissionLetterStatus,
   deleteAdmissionLetter,
+  listStudentDocuments,
 };

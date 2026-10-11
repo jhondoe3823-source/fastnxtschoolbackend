@@ -32,7 +32,7 @@ const updateProfileSchema = {
     principal: { maxLength: 120 },
     academicSession: { maxLength: 40 },
     instituteNo: { maxLength: 60 },
-    logoUrl: { maxLength: 500 },
+    logoUrl: { maxLength: 2500000 },
   },
 };
 

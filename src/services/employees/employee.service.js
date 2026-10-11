@@ -114,37 +114,54 @@ async function createEmployee(schoolId, input) {
 
   logger.info(`Created employee "${emp.name}" (${emp.employeeId}) for school ${schoolId}.`);
 
-  // Auto create User account for login if email is provided
-  if (emp.email) {
-    try {
-      const email = emp.email.trim().toLowerCase();
-      const existingUser = await prisma.user.findUnique({ where: { email } });
-      if (!existingUser) {
-        const passwordHash = await bcrypt.hash(input.password || 'Password123', 10);
-        const role = emp.designation || 'Teacher';
-        const roleLower = role.toLowerCase();
-        const panel = (roleLower.includes('teacher') || roleLower.includes('staff')) ? 'teacher' : 'user';
-        await prisma.user.create({
-          data: {
-            schoolId,
-            branchId: emp.branchId || null,
-            name: emp.name,
-            email,
-            passwordHash,
-            role,
-            panel,
-            isActive: true,
-            emailVerified: true,
-          },
-        });
-        logger.info(`Auto-created User account for Employee "${email}" (${role}).`);
-      }
-    } catch (err) {
-      logger.warn(`Failed to auto-create user account for employee: ${err.message}`);
-    }
-  }
+  await ensureLoginUserForEmployee(schoolId, emp, input.password);
 
   return serializeEmployee(emp);
+}
+
+/** Create a login User for an employee when email is present and no user exists yet. */
+async function ensureLoginUserForEmployee(schoolId, emp, password) {
+  if (!emp?.email) return null;
+
+  try {
+    const email = emp.email.trim().toLowerCase();
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) return existingUser;
+
+    const passwordHash = await bcrypt.hash(password || 'Password123', 10);
+    const role = emp.designation || 'Teacher';
+    const roleLower = role.toLowerCase();
+    let panel = 'teacher';
+    if (roleLower.includes('student')) panel = 'student';
+    else if (roleLower.includes('admin') || roleLower.includes('owner') || roleLower.includes('principal')) {
+      panel = 'admin';
+    } else if (
+      roleLower.includes('teacher') ||
+      roleLower.includes('staff') ||
+      roleLower.includes('employee')
+    ) {
+      panel = 'teacher';
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        schoolId,
+        branchId: emp.branchId || null,
+        name: emp.name,
+        email,
+        passwordHash,
+        role,
+        panel,
+        isActive: true,
+        emailVerified: true,
+      },
+    });
+    logger.info(`Auto-created User account for Employee "${email}" (${role}).`);
+    return user;
+  } catch (err) {
+    logger.warn(`Failed to auto-create user account for employee: ${err.message}`);
+    return null;
+  }
 }
 
 async function updateEmployee(schoolId, id, input) {
@@ -177,6 +194,11 @@ async function updateEmployee(schoolId, id, input) {
     where: { id: existing.id },
     data,
   });
+
+  // If email was added/changed later, ensure a login account exists.
+  if (updated.email) {
+    await ensureLoginUserForEmployee(schoolId, updated, input.password);
+  }
 
   logger.info(`Updated employee "${updated.name}" (${updated.id}).`);
   return serializeEmployee(updated);
