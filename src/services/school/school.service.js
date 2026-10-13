@@ -34,6 +34,7 @@ const SCHOOL_FIELDS = [
   'academicSession',
   'instituteNo',
   'logoUrl',
+  'isActive',
   'createdAt',
   'updatedAt',
 ];

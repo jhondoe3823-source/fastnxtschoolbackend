@@ -8,7 +8,7 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../../config/database').prisma;
 const logger = require('../../utils/logger');
-const { conflict, unauthorized, notFound } = require('../../utils/errors');
+const { conflict, unauthorized, forbidden, notFound } = require('../../utils/errors');
 const subscriptionRules = require('../../utils/subscription');
 const schoolService = require('../school/school.service');
 const {
@@ -19,6 +19,9 @@ const {
   SUBSCRIPTION_STATUS,
   ERROR_CODES,
 } = require('../../constants');
+
+const SCHOOL_DEACTIVATED_MESSAGE =
+  'This school has been deactivated. Please contact BisonsTechs support.';
 
 const SALT_ROUNDS = 10;
 
@@ -194,6 +197,11 @@ async function login({ email, password }) {
     throw invalid();
   }
 
+  if (user.school && user.school.isActive === false) {
+    logger.warn(`Blocked login for deactivated school "${user.school.id}" (${user.email}).`);
+    throw forbidden(SCHOOL_DEACTIVATED_MESSAGE, ERROR_CODES.SCHOOL_DEACTIVATED);
+  }
+
   const passwordMatches = await bcrypt.compare(String(password || ''), user.passwordHash);
   if (!passwordMatches) {
     logger.warn(`Failed login for ${user.email}.`);
@@ -222,6 +230,10 @@ async function getSession(userId) {
   const user = await findUserWithSchool({ id: userId });
   if (!user || !user.isActive) {
     throw notFound('Your account no longer exists. Please register again.');
+  }
+
+  if (user.school && user.school.isActive === false) {
+    throw forbidden(SCHOOL_DEACTIVATED_MESSAGE, ERROR_CODES.SCHOOL_DEACTIVATED);
   }
 
   const now = new Date();

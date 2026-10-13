@@ -7,6 +7,9 @@
  *   GET  /api/platform/dashboard
  *   GET  /api/platform/schools
  *   GET  /api/platform/schools/:id
+ *   PATCH /api/platform/schools/:id/status
+ *   POST  /api/platform/schools/:id/extend-trial
+ *   POST  /api/platform/schools/:id/set-plan
  */
 
 const express = require('express');
@@ -30,5 +33,8 @@ router.post('/auth/logout', controller.logout);
 router.get('/dashboard', requirePlatformAuth, controller.dashboard);
 router.get('/schools', requirePlatformAuth, controller.listSchools);
 router.get('/schools/:id', requirePlatformAuth, controller.getSchool);
+router.patch('/schools/:id/status', requirePlatformAuth, controller.setSchoolActive);
+router.post('/schools/:id/extend-trial', requirePlatformAuth, controller.extendTrial);
+router.post('/schools/:id/set-plan', requirePlatformAuth, controller.setPlan);
 
 module.exports = router;

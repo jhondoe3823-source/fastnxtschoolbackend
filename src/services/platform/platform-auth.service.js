@@ -6,8 +6,6 @@ const env = require('../../config/env');
 const { unauthorized } = require('../../utils/errors');
 
 const ADMIN_NAMES = {
-  'mfaisala@gmail.com': 'M Faisal',
-  'arshadnasir21@gmail.com': 'Arshad Nasir',
   'adminbisonseducore360@gmail.com': 'Platform Admin',
 };
 

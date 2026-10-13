@@ -70,6 +70,28 @@ const getSchool = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'School details.', data);
 });
 
+const setSchoolActive = asyncHandler(async (req, res) => {
+  const isActive = req.body?.isActive;
+  const data = await platformSchools.setSchoolActive(req.params.id, isActive);
+  return ApiResponse.ok(
+    res,
+    isActive ? 'School activated.' : 'School deactivated.',
+    data
+  );
+});
+
+const extendTrial = asyncHandler(async (req, res) => {
+  const days = req.body?.days ?? 5;
+  const data = await platformSchools.extendTrial(req.params.id, days);
+  return ApiResponse.ok(res, `Trial extended by ${days} day(s).`, data);
+});
+
+const setPlan = asyncHandler(async (req, res) => {
+  const plan = req.body?.plan;
+  const data = await platformSchools.setPlan(req.params.id, plan);
+  return ApiResponse.ok(res, `Plan set to ${String(plan).toUpperCase()}.`, data);
+});
+
 module.exports = {
   login,
   me,
@@ -77,4 +99,7 @@ module.exports = {
   dashboard,
   listSchools,
   getSchool,
+  setSchoolActive,
+  extendTrial,
+  setPlan,
 };

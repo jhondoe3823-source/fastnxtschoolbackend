@@ -77,6 +77,8 @@ model School {
   admissionLetterTemplate Json?
   /// Editable job / appointment letter layout.
   jobLetterTemplate Json?
+  /// Platform admin can deactivate a whole school — users cannot sign in.
+  isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

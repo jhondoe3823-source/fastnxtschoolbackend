@@ -113,10 +113,7 @@ const env = {
    * Only these emails can sign in; they share PLATFORM_ADMIN_PASSWORD.
    */
   platform: {
-    emails: str(
-      'PLATFORM_ADMIN_EMAILS',
-      'mfaisala@gmail.com,arshadnasir212@gmail.com,adminbisonseducore360@gmail.com'
-    )
+    emails: str('PLATFORM_ADMIN_EMAILS', 'adminbisonseducore360@gmail.com')
       .split(',')
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),

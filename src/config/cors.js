@@ -5,16 +5,30 @@
  * to send the httpOnly session cookie — so credentials are enabled and the
  * allowed origins are an explicit allow-list (never "*" together with
  * credentials, which browsers reject).
+ *
+ * Entries may be exact origins, or end with `*` as a prefix wildcard
+ * (e.g. `https://bisonseducore360-admin*.vercel.app` for Vercel previews).
  */
 
 const env = require('./env');
+
+function isOriginAllowed(origin) {
+  const allowed = env.corsOrigins;
+  if (allowed.includes('*') || allowed.includes(origin)) return true;
+
+  return allowed.some((entry) => {
+    if (!entry.endsWith('*')) return false;
+    const prefix = entry.slice(0, -1);
+    return origin.startsWith(prefix);
+  });
+}
 
 const corsOptions = {
   origin(origin, callback) {
     // Same-origin, server-to-server and curl requests send no Origin header.
     if (!origin) return callback(null, true);
 
-    if (env.corsOrigins.includes('*') || env.corsOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
 
@@ -27,4 +41,4 @@ const corsOptions = {
   maxAge: 86_400,
 };
 
-module.exports = { corsOptions };
+module.exports = { corsOptions, isOriginAllowed };

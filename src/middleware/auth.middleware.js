@@ -14,6 +14,8 @@ const { readTokenFromRequest, verifyToken } = require('../utils/token');
 const ApiResponse = require('../utils/response');
 const authService = require('../services/auth/auth.service');
 const logger = require('../utils/logger');
+const prisma = require('../config/database').prisma;
+const { ERROR_CODES } = require('../constants');
 
 async function requireAuth(req, res, next) {
   const token = readTokenFromRequest(req);
@@ -24,6 +26,20 @@ async function requireAuth(req, res, next) {
 
   try {
     const payload = verifyToken(token);
+
+    if (payload.schoolId) {
+      const school = await prisma.school.findUnique({
+        where: { id: payload.schoolId },
+        select: { isActive: true },
+      });
+      if (school && school.isActive === false) {
+        return ApiResponse.forbidden(
+          res,
+          'This school has been deactivated. Please contact BisonsTechs support.',
+          ERROR_CODES.SCHOOL_DEACTIVATED
+        );
+      }
+    }
 
     req.auth = {
       userId: payload.sub,
