@@ -1,0 +1,6 @@
+# Railway: run migrations once per deploy (release), not on every container restart.
+# That avoids Prisma advisory-lock crash loops when Neon is slow or a prior migrate is stuck.
+[deploy]
+releaseCommand = "npx prisma migrate deploy"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -107,6 +107,22 @@ const env = {
     apiSecret: str('CLOUDINARY_API_SECRET'),
     folder: str('CLOUDINARY_FOLDER', 'bisonseducore360'),
   },
+
+  /**
+   * Platform admin console (bisonseducore_360_admin).
+   * Only these emails can sign in; they share PLATFORM_ADMIN_PASSWORD.
+   */
+  platform: {
+    emails: str(
+      'PLATFORM_ADMIN_EMAILS',
+      'mfaisala@gmail.com,arshadnasir212@gmail.com,adminbisonseducore360@gmail.com'
+    )
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+    password: str('PLATFORM_ADMIN_PASSWORD', 'BisonsAdmin@360'),
+    cookieName: str('PLATFORM_COOKIE_NAME', 'bisons_platform_session'),
+  },
 };
 
 module.exports = env;

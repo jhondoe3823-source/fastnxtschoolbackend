@@ -392,7 +392,50 @@ async function createInvoice(schoolId, input) {
   const issue = trimmed(input.issue) || new Date().toISOString().slice(0, 10);
   const due = trimmed(input.due) || issue;
 
+  const session = trimmed(input.session) || '2025-2026';
   let lines = Array.isArray(input.lines) ? input.lines : [];
+
+  // Prefer class fee structure amounts over catalog (particular) defaults.
+  // Particulars are templates (often amount 0); structure holds per-class fees.
+  if (lines.length === 0 && (input.useStructure || (Array.isArray(input.particularIds) && input.particularIds.length))) {
+    let structure = await prisma.feeStructure.findMany({
+      where: { schoolId, session, cls, section },
+    });
+    // Fall back to any section for this class if exact section has no lines.
+    if (structure.length === 0) {
+      const all = await prisma.feeStructure.findMany({ where: { schoolId, session, cls } });
+      const seen = new Set();
+      structure = all.filter((s) => {
+        const key = s.particularId || s.particular;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    if (Array.isArray(input.particularIds) && input.particularIds.length) {
+      const idSet = new Set(input.particularIds);
+      const byId = structure.filter((s) => s.particularId && idSet.has(s.particularId));
+      if (byId.length) {
+        structure = byId;
+      } else {
+        const particulars = await prisma.feeParticular.findMany({
+          where: { schoolId, id: { in: input.particularIds } },
+        });
+        const names = new Set(particulars.map((p) => p.particular));
+        structure = structure.filter((s) => names.has(s.particular));
+      }
+    }
+
+    lines = structure.map((s) => ({
+      particularId: s.particularId,
+      particular: s.particular,
+      amount: s.amount,
+      frequency: s.frequency,
+    }));
+  }
+
+  // Last resort: catalog particular amounts (only when no structure lines exist)
   if (lines.length === 0 && Array.isArray(input.particularIds) && input.particularIds.length) {
     const particulars = await prisma.feeParticular.findMany({
       where: { schoolId, id: { in: input.particularIds } },
@@ -402,18 +445,6 @@ async function createInvoice(schoolId, input) {
       particular: p.particular,
       amount: p.amount,
       frequency: p.frequency,
-    }));
-  }
-  if (lines.length === 0 && input.useStructure) {
-    const session = trimmed(input.session) || '2025-2026';
-    const structure = await prisma.feeStructure.findMany({
-      where: { schoolId, session, cls, section },
-    });
-    lines = structure.map((s) => ({
-      particularId: s.particularId,
-      particular: s.particular,
-      amount: s.amount,
-      frequency: s.frequency,
     }));
   }
 

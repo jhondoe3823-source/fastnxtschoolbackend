@@ -134,4 +134,10 @@ router.use('/mail', mailRoutes);
 const lettersRoutes = require('./letters.routes');
 router.use('/letters', lettersRoutes);
 
+// Platform admin console (BisonsEduCore360 Admin)
+// POST /api/platform/auth/login | GET /me | POST /logout
+// GET  /api/platform/dashboard | /schools | /schools/:id
+const platformRoutes = require('./platform.routes');
+router.use('/platform', platformRoutes);
+
 module.exports = router;
