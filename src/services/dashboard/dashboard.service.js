@@ -124,20 +124,42 @@ async function getOverview(schoolId, { branchId } = {}) {
     else gender.Other += row._count._all;
   }
 
-  // School-level P&L (journals are not branch-scoped). Campus view uses fee totals as money KPIs.
+  // Live Profit & Loss from posted ledger (same engine as /accounts/profit-loss).
   let income = collectedFees;
   let expenses = 0;
-  if (allCampuses) {
-    try {
-      const ledgerService = require('../accounts/ledger.service');
-      const accountService = require('../accounts/account.service');
-      await accountService.ensureDefaultChartOfAccounts(schoolId);
-      const pl = await ledgerService.profitAndLoss(schoolId);
-      income = pl.totalIncome || collectedFees;
-      expenses = pl.totalExpenses || 0;
-    } catch {
-      // Keep fee-based fallbacks
+  let net = collectedFees;
+  let incomeLines = [];
+  let expenseLines = [];
+  try {
+    const ledgerService = require('../accounts/ledger.service');
+    const accountService = require('../accounts/account.service');
+    await accountService.ensureDefaultChartOfAccounts(schoolId);
+    const pl = await ledgerService.profitAndLoss(schoolId, {
+      branchId: allCampuses ? undefined : branchId,
+    });
+    income = Number(pl.totalIncome) || 0;
+    expenses = Number(pl.totalExpenses) || 0;
+    net = Number(pl.net) || income - expenses;
+    incomeLines = (pl.income || [])
+      .filter((row) => Number(row.amount) !== 0)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+      .slice(0, 6)
+      .map((row) => ({ name: row.name, amount: row.amount }));
+    expenseLines = (pl.expenses || [])
+      .filter((row) => Number(row.amount) !== 0)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+      .slice(0, 6)
+      .map((row) => ({ name: row.name, amount: row.amount }));
+
+    // If ledger is empty, keep fee collections as a soft income fallback so the card is not blank.
+    if (income === 0 && expenses === 0 && collectedFees > 0) {
+      income = collectedFees;
+      net = collectedFees;
+      incomeLines = [{ name: 'Fee collections', amount: collectedFees }];
     }
+  } catch {
+    // Keep fee-based fallbacks
+    net = income - expenses;
   }
 
   let branchPerformance = [];
@@ -179,8 +201,16 @@ async function getOverview(schoolId, { branchId } = {}) {
       collectedFees,
       income,
       expenses,
+      net,
       paidInvoices,
       overdueInvoices,
+    },
+    pnl: {
+      totalIncome: income,
+      totalExpenses: expenses,
+      net,
+      income: incomeLines,
+      expenses: expenseLines,
     },
     gender,
     feeStatus,
