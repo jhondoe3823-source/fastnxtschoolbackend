@@ -80,17 +80,18 @@ function deriveInvoiceStatus({ total, discount, paid, due, status }) {
   return { balance, status: balance <= 0 ? 'Paid' : 'Pending' };
 }
 
-function serializeInvoice(r) {
+function serializeInvoice(r, extras = {}) {
   return {
     id: r.id,
     invoiceNo: r.invoiceNo,
     branchId: r.branchId || null,
     studentId: r.studentId || null,
     student: r.student,
-    studentCode: r.studentCode || null,
+    studentCode: r.studentCode || extras.studentCode || null,
+    admissionNo: extras.admissionNo || r.admissionNo || null,
     cls: r.cls,
     section: r.section,
-    session: r.session || null,
+    session: r.session || extras.session || null,
     period: r.period,
     issue: r.issue,
     due: r.due,
@@ -105,6 +106,24 @@ function serializeInvoice(r) {
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
+}
+
+async function attachStudentExtras(schoolId, invoices) {
+  const ids = [...new Set(invoices.map((r) => r.studentId).filter(Boolean))];
+  if (ids.length === 0) return invoices.map((r) => serializeInvoice(r));
+  const students = await prisma.student.findMany({
+    where: { schoolId, id: { in: ids } },
+    select: { id: true, admissionNo: true, studentId: true, session: true },
+  });
+  const byId = new Map(students.map((s) => [s.id, s]));
+  return invoices.map((r) => {
+    const st = r.studentId ? byId.get(r.studentId) : null;
+    return serializeInvoice(r, {
+      admissionNo: st?.admissionNo || null,
+      studentCode: r.studentCode || st?.studentId || null,
+      session: r.session || st?.session || null,
+    });
+  });
 }
 
 /* ── Particulars ─────────────────────────────────────────── */
@@ -380,7 +399,7 @@ async function listInvoices(schoolId, { q, cls, status, branchId } = {}) {
     where,
     orderBy: { createdAt: 'desc' },
   });
-  return rows.map(serializeInvoice);
+  return attachStudentExtras(schoolId, rows);
 }
 
 async function createInvoice(schoolId, input) {

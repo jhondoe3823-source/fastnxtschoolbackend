@@ -22,6 +22,30 @@ function signedBalance(type, debit, credit) {
   return DEBIT_NORMAL_TYPES.has(type) ? debit - credit : credit - debit;
 }
 
+/** Start of calendar day (UTC) for YYYY-MM-DD inputs. Date instances pass through. */
+function dayStart(value) {
+  if (!value) return undefined;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00.000Z`);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/**
+ * End of calendar day (UTC) for YYYY-MM-DD inputs. Critical because journal
+ * entry dates are full timestamps — midnight-only cutoffs drop same-day postings.
+ * Date instances pass through unchanged.
+ */
+function dayEnd(value) {
+  if (!value) return undefined;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T23:59:59.999Z`);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 /**
  * Aggregate posted journal lines per account, optionally within a date range
  * and/or up to a cutoff date (`asOf`), and optionally one campus.
@@ -29,9 +53,12 @@ function signedBalance(type, debit, credit) {
  */
 async function aggregateByAccount(schoolId, { from, to, asOf, branchId } = {}) {
   const dateFilter = {};
-  if (from) dateFilter.gte = new Date(from);
-  if (asOf) dateFilter.lte = new Date(asOf);
-  else if (to) dateFilter.lte = new Date(to);
+  const fromDate = dayStart(from);
+  const asOfDate = dayEnd(asOf);
+  const toDate = dayEnd(to);
+  if (fromDate) dateFilter.gte = fromDate;
+  if (asOfDate) dateFilter.lte = asOfDate;
+  else if (toDate) dateFilter.lte = toDate;
 
   // groupBy only accepts relation filters via `is` / `isNot` (not shorthand fields).
   const grouped = await prisma.journalLine.groupBy({
@@ -143,18 +170,20 @@ async function generalLedger(schoolId, accountId, { from, to, branchId } = {}) {
   if (!account) throw notFound('Account not found.');
 
   const dateFilter = {};
-  if (from) dateFilter.gte = new Date(from);
-  if (to) dateFilter.lte = new Date(to);
+  const fromDate = dayStart(from);
+  const toDate = dayEnd(to);
+  if (fromDate) dateFilter.gte = fromDate;
+  if (toDate) dateFilter.lte = toDate;
   const scope = branchWhere(branchId);
 
   // Opening balance = account's own opening balance + all movement strictly
   // before `from`, so the running balance continues correctly mid-period.
   let opening = account.openingBalance || 0;
-  if (from) {
+  if (fromDate) {
     const prior = await prisma.journalLine.aggregate({
       where: {
         accountId,
-        entry: { schoolId, status: 'Posted', ...scope, date: { lt: new Date(from) } },
+        entry: { schoolId, status: 'Posted', ...scope, date: { lt: fromDate } },
       },
       _sum: { debit: true, credit: true },
     });
@@ -278,8 +307,10 @@ async function balanceSheet(schoolId, { asOf, from, to, branchId } = {}) {
 async function cashFlow(schoolId, { from, to, branchId } = {}) {
   const accounts = await prisma.account.findMany({ where: { schoolId } });
 
+  // Opening = everything strictly before the period start (not including `from` day).
+  const periodStart = dayStart(from);
   const openingTotals = await aggregateByAccount(schoolId, {
-    to: from ? new Date(from) : undefined,
+    to: periodStart ? new Date(periodStart.getTime() - 1) : undefined,
     branchId,
   });
   const periodTotals = await aggregateByAccount(schoolId, { from, to, branchId });
@@ -366,8 +397,10 @@ async function cashBankSummary(schoolId, { branchId } = {}) {
  */
 async function accountStatement(schoolId, { from, to, type, q, branchId } = {}) {
   const dateFilter = {};
-  if (from) dateFilter.gte = new Date(from);
-  if (to) dateFilter.lte = new Date(to);
+  const fromDate = dayStart(from);
+  const toDate = dayEnd(to);
+  if (fromDate) dateFilter.gte = fromDate;
+  if (toDate) dateFilter.lte = toDate;
 
   const accountWhere = { schoolId };
   if (type === 'Income') accountWhere.type = 'Income';

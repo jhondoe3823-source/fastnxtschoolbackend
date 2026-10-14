@@ -80,6 +80,9 @@ function serializePayment(p, { duplicate = false } = {}) {
     amount: p.amount,
     method: p.method,
     reference: p.reference || '',
+    cashBankAccountId: p.cashBankAccountId || null,
+    cashBankAccountName: p.cashBankAccountName || '',
+    cashBankAccountNumber: p.cashBankAccountNumber || '',
     cashierId: p.cashierId || null,
     cashierName: p.cashierName || '',
     paidAt: p.paidAt instanceof Date ? p.paidAt.toISOString() : p.paidAt,
@@ -133,37 +136,68 @@ async function nextJournalNo(tx, schoolId) {
   return `JE-${String(seq).padStart(4, '0')}`;
 }
 
+/**
+ * Resolve ledger Cash/Bank account + display meta for the selected BankAccount.
+ * `preferredId` may be a BankAccount.id or a Chart-of-Accounts Account.id.
+ * Returns `{ account, cashBankAccountId, cashBankAccountName, cashBankAccountNumber }`.
+ */
 async function resolveCashBankAccount(tx, schoolId, method, preferredId) {
+  const pack = (account, bankRow = null) => {
+    if (!account) return null;
+    return {
+      account,
+      cashBankAccountId: bankRow?.id || account.id,
+      cashBankAccountName: bankRow?.name || account.name || '',
+      cashBankAccountNumber: bankRow?.number && bankRow.number !== '—' ? bankRow.number : '',
+    };
+  };
+
   if (preferredId) {
     const bankRow = await tx.bankAccount.findFirst({
       where: { id: preferredId, schoolId, isActive: true },
       include: { account: true },
     });
-    if (bankRow?.account) return bankRow.account;
+    if (bankRow?.account) return pack(bankRow.account, bankRow);
 
     const acc = await tx.account.findFirst({
       where: { id: preferredId, schoolId, isActive: true },
     });
-    if (acc) return acc;
+    if (acc) {
+      const linked = await tx.bankAccount.findFirst({
+        where: { schoolId, accountId: acc.id, isActive: true },
+      });
+      return pack(acc, linked);
+    }
   }
 
   await accountService.ensureDefaultChartOfAccounts(schoolId);
 
+  let account = null;
   if (method === 'Cash') {
-    return (
+    account =
       (await tx.account.findFirst({ where: { schoolId, code: '1001', isActive: true } })) ||
       (await tx.account.findFirst({
         where: { schoolId, type: 'Asset', name: { contains: 'Cash', mode: 'insensitive' }, isActive: true },
-      }))
-    );
+      }));
+  } else {
+    account =
+      (await tx.account.findFirst({ where: { schoolId, code: '1002', isActive: true } })) ||
+      (await tx.account.findFirst({
+        where: { schoolId, type: 'Asset', name: { contains: 'Bank', mode: 'insensitive' }, isActive: true },
+      }));
   }
 
-  return (
-    (await tx.account.findFirst({ where: { schoolId, code: '1002', isActive: true } })) ||
-    (await tx.account.findFirst({
-      where: { schoolId, type: 'Asset', name: { contains: 'Bank', mode: 'insensitive' }, isActive: true },
-    }))
-  );
+  if (!account) return null;
+
+  const linked = await tx.bankAccount.findFirst({
+    where: {
+      schoolId,
+      accountId: account.id,
+      isActive: true,
+      ...(method === 'Cash' ? { kind: 'Cash' } : { kind: 'Bank' }),
+    },
+  });
+  return pack(account, linked);
 }
 
 async function resolveTuitionAccount(tx, schoolId) {
@@ -308,19 +342,20 @@ async function collectPayment(schoolId, invoiceId, input = {}, auth = {}) {
         const tuitionAcc = await resolveTuitionAccount(tx, schoolId);
         if (!tuitionAcc) throw badRequest('Tuition Fees account is not configured.');
 
-        const cashBankAcc = await resolveCashBankAccount(
+        const cashBankResolved = await resolveCashBankAccount(
           tx,
           schoolId,
           method,
           trimmed(input.cashBankAccountId) || null
         );
-        if (!cashBankAcc) {
+        if (!cashBankResolved?.account) {
           throw badRequest(
             method === 'Cash'
               ? 'Could not resolve a Cash account. Please select one.'
               : 'Could not resolve a Bank account. Please select one.'
           );
         }
+        const cashBankAcc = cashBankResolved.account;
 
         const voucherNo = await nextVoucherNo(tx, schoolId, 'Receipt');
         const jeNo = await nextJournalNo(tx, schoolId);
@@ -369,7 +404,7 @@ async function collectPayment(schoolId, invoiceId, input = {}, auth = {}) {
             accountId: tuitionAcc.id,
             amount: requested,
             method,
-            cashBankAccountId: cashBankAcc.id,
+            cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
             reference: `${inv.invoiceNo} / ${receiptNo}`,
             status: 'Posted',
             journalEntryId: journal.id,
@@ -394,6 +429,9 @@ async function collectPayment(schoolId, invoiceId, input = {}, auth = {}) {
             amount: requested,
             method,
             reference,
+            cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
+            cashBankAccountName: cashBankResolved.cashBankAccountName || '',
+            cashBankAccountNumber: cashBankResolved.cashBankAccountNumber || '',
             cashierId,
             cashierName,
             paidAt,
@@ -570,6 +608,16 @@ async function listInvoicePayments(schoolId, invoiceId) {
   return rows.map((p) => serializePayment(p));
 }
 
+/**
+ * Portal: payments for the signed-in student's linked Student row (email match).
+ */
+async function listMyPayments(schoolId, auth = {}, query = {}) {
+  const studentService = require('../students/student.service');
+  const student = await studentService.getMyStudent(schoolId, auth);
+  if (!student?.id) throw badRequest('No student profile is linked to this login.');
+  return listPayments(schoolId, { ...query, studentId: student.id });
+}
+
 module.exports = {
   collectPayment,
   getPayment,
@@ -577,6 +625,7 @@ module.exports = {
   recordReprint,
   listPayments,
   listInvoicePayments,
+  listMyPayments,
   serializePayment,
   serializeInvoice,
   deriveInvoiceStatus,

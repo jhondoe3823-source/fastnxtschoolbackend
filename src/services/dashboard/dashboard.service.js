@@ -124,19 +124,20 @@ async function getOverview(schoolId, { branchId } = {}) {
     else gender.Other += row._count._all;
   }
 
-  // Live Profit & Loss from posted ledger (same engine as /accounts/profit-loss).
-  let income = collectedFees;
+  // Live Profit & Loss from posted ledger (same engine as Accounts dashboard / P&L).
+  // Do NOT fall back to feeInvoice.paid when ledger nets to zero — reversing a JE
+  // correctly zeroes income while invoice.paid may still show historical collections.
+  let income = 0;
   let expenses = 0;
-  let net = collectedFees;
+  let net = 0;
   let incomeLines = [];
   let expenseLines = [];
   try {
     const ledgerService = require('../accounts/ledger.service');
     const accountService = require('../accounts/account.service');
     await accountService.ensureDefaultChartOfAccounts(schoolId);
-    const pl = await ledgerService.profitAndLoss(schoolId, {
-      branchId: allCampuses ? undefined : branchId,
-    });
+    const plBranchId = allCampuses ? undefined : branchId;
+    const pl = await ledgerService.profitAndLoss(schoolId, { branchId: plBranchId });
     income = Number(pl.totalIncome) || 0;
     expenses = Number(pl.totalExpenses) || 0;
     net = Number(pl.net) || income - expenses;
@@ -151,14 +152,24 @@ async function getOverview(schoolId, { branchId } = {}) {
       .slice(0, 6)
       .map((row) => ({ name: row.name, amount: row.amount }));
 
-    // If ledger is empty, keep fee collections as a soft income fallback so the card is not blank.
-    if (income === 0 && expenses === 0 && collectedFees > 0) {
+    // Soft fallback ONLY when the school has never posted any journal activity.
+    const postedLines = await prisma.journalLine.count({
+      where: {
+        entry: {
+          is: {
+            schoolId,
+            status: 'Posted',
+            ...(plBranchId ? { branchId: plBranchId } : {}),
+          },
+        },
+      },
+    });
+    if (postedLines === 0 && collectedFees > 0) {
       income = collectedFees;
       net = collectedFees;
       incomeLines = [{ name: 'Fee collections', amount: collectedFees }];
     }
   } catch {
-    // Keep fee-based fallbacks
     net = income - expenses;
   }
 

@@ -33,6 +33,7 @@ router.get('/voucher-template', feeController.getVoucherTemplate);
 router.patch('/voucher-template', feeController.updateVoucherTemplate);
 
 // Fee payments / receipts (immutable payment history)
+router.get('/payments/me', feeController.listMyPayments);
 router.get('/payments', feeController.listPayments);
 router.get('/payments/:id', feeController.getPayment);
 router.get('/payments/:id/receipt', feeController.getReceipt);

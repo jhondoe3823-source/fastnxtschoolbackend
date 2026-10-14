@@ -124,6 +124,11 @@ const listInvoicePayments = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'Invoice payments loaded.', { payments });
 });
 
+const listMyPayments = asyncHandler(async (req, res) => {
+  const data = await feePaymentService.listMyPayments(req.auth.schoolId, req.auth, req.query);
+  return ApiResponse.ok(res, 'My fee payments loaded.', data);
+});
+
 module.exports = {
   listParticulars,
   createParticular,
@@ -149,4 +154,5 @@ module.exports = {
   getReceipt,
   reprintReceipt,
   listInvoicePayments,
+  listMyPayments,
 };

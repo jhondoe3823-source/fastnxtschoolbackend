@@ -1279,6 +1279,10 @@ model FeePayment {
   amount           Int
   method           String   @default("Cash")
   reference        String   @default("")
+  /// Selected cash/bank account (BankAccount.id preferred; may be ledger Account.id).
+  cashBankAccountId     String?
+  cashBankAccountName   String  @default("")
+  cashBankAccountNumber String  @default("")
   cashierId        String?
   cashierName      String   @default("")
   paidAt           DateTime @default(now())
