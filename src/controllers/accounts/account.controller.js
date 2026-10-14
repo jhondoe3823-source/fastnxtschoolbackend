@@ -236,7 +236,18 @@ const listReceivables = asyncHandler(async (req, res) => {
 
 const collectFeePayment = asyncHandler(async (req, res) => {
   const result = await receivablesService.collectFeePayment(req.auth.schoolId, req.params.id, req.body, req.auth);
-  return ApiResponse.ok(res, 'Fee payment collected and posted to accounting successfully.', result);
+  return ApiResponse.ok(
+    res,
+    result.idempotent
+      ? 'Payment already recorded.'
+      : 'Fee payment collected and posted to accounting successfully.',
+    {
+      invoice: result.invoice,
+      voucher: result.voucher,
+      payment: result.payment,
+      idempotent: result.idempotent,
+    }
+  );
 });
 
 module.exports = {

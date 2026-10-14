@@ -32,11 +32,18 @@ router.delete('/discounts/:id', feeController.deleteDiscount);
 router.get('/voucher-template', feeController.getVoucherTemplate);
 router.patch('/voucher-template', feeController.updateVoucherTemplate);
 
+// Fee payments / receipts (immutable payment history)
+router.get('/payments', feeController.listPayments);
+router.get('/payments/:id', feeController.getPayment);
+router.get('/payments/:id/receipt', feeController.getReceipt);
+router.post('/payments/:id/reprint', feeController.reprintReceipt);
+
 // Invoices
 router.get('/invoices', feeController.listInvoices);
 router.post('/invoices', feeController.createInvoice);
 router.patch('/invoices/:id', feeController.updateInvoice);
 router.post('/invoices/:id/pay', feeController.recordPayment);
+router.get('/invoices/:id/payments', feeController.listInvoicePayments);
 router.delete('/invoices/:id', feeController.deleteInvoice);
 
 module.exports = router;

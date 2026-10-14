@@ -113,6 +113,8 @@ model School {
   feeStructures      FeeStructure[]
   discountTypes      DiscountType[]
   feeInvoices        FeeInvoice[]
+  feePayments        FeePayment[]
+  feeReceiptReprints FeeReceiptReprint[]
   exams              Exam[]
   examPaperSlots     ExamPaperSlot[]
   questionPapers     QuestionPaperSubmission[]
@@ -1232,6 +1234,8 @@ model FeeInvoice {
   studentCode    String?
   cls            String
   section        String
+  /// Academic session captured at invoice creation (e.g. 2025-2026).
+  session        String?
   period         String
   issue          String
   due            String
@@ -1246,13 +1250,89 @@ model FeeInvoice {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  school   School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payments FeePayment[]
 
   @@unique([schoolId, invoiceNo])
   @@index([schoolId])
   @@index([schoolId, status])
   @@index([schoolId, studentId])
   @@map("fee_invoices")
+}
+
+/// Immutable recorded fee payment + receipt snapshot (one row per successful collection).
+model FeePayment {
+  id               String   @id @default(cuid())
+  schoolId         String
+  branchId         String?
+  receiptNo        String
+  invoiceId        String
+  invoiceNo        String
+  studentId        String?
+  studentName      String
+  studentCode      String?
+  admissionNo      String?
+  cls              String
+  section          String
+  session          String?
+  period           String
+  amount           Int
+  method           String   @default("Cash")
+  reference        String   @default("")
+  cashierId        String?
+  cashierName      String   @default("")
+  paidAt           DateTime @default(now())
+  /// Invoice total (gross) at payment time.
+  grossAmount      Int      @default(0)
+  discount         Int      @default(0)
+  /// Outstanding balance before this payment.
+  previousBalance  Int      @default(0)
+  /// Outstanding balance after this payment.
+  remainingBalance Int      @default(0)
+  /// Receipt payment status label: PAID | PARTIAL PAYMENT
+  status           String
+  linesSnapshot    Json?
+  schoolSnapshot   Json?
+  voucherId        String?
+  voucherNo        String?
+  journalEntryId   String?
+  /// Client-supplied key to make retries idempotent (unique per school when set).
+  idempotencyKey   String?
+  reprintCount     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  school   School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  invoice  FeeInvoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  reprints FeeReceiptReprint[]
+
+  @@unique([schoolId, receiptNo])
+  @@unique([schoolId, idempotencyKey])
+  @@index([schoolId])
+  @@index([schoolId, invoiceId])
+  @@index([schoolId, studentId])
+  @@index([schoolId, paidAt])
+  @@index([schoolId, receiptNo])
+  @@map("fee_payments")
+}
+
+/// Audit log for receipt reprints / duplicate copies (does not create payments).
+model FeeReceiptReprint {
+  id         String   @id @default(cuid())
+  schoolId   String
+  paymentId  String
+  receiptNo  String
+  userId     String?
+  userName   String   @default("")
+  createdAt  DateTime @default(now())
+
+  school  School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payment FeePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([schoolId, paymentId])
+  @@index([schoolId, createdAt])
+  @@map("fee_receipt_reprints")
 }
 
 /// A student fee invoice (accounts receivable). `paid` is kept in sync with the

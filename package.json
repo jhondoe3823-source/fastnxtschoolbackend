@@ -15,7 +15,9 @@
     "migrate:status": "prisma migrate status",
     "release": "prisma migrate deploy",
     "seed": "node prisma/seed.js",
-    "studio": "prisma studio"
+    "studio": "prisma studio",
+    "test": "node --test src/tests/**/*.test.js",
+    "test:fee-payment": "node --test src/tests/fee-payment.logic.test.js"
   },
   "keywords": [],
   "author": "",

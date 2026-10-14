@@ -5,6 +5,7 @@
 const ApiResponse = require('../../utils/response');
 const asyncHandler = require('../../utils/async-handler');
 const feeService = require('../../services/fees/fee.service');
+const feePaymentService = require('../../services/fees/fee-payment.service');
 
 /* Particulars */
 const listParticulars = asyncHandler(async (req, res) => {
@@ -74,8 +75,13 @@ const updateInvoice = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, 'Fee invoice updated.', { invoice });
 });
 const recordPayment = asyncHandler(async (req, res) => {
-  const invoice = await feeService.recordPayment(req.auth.schoolId, req.params.id, req.body);
-  return ApiResponse.ok(res, 'Payment recorded.', { invoice });
+  const result = await feeService.recordPayment(req.auth.schoolId, req.params.id, req.body, req.auth);
+  return ApiResponse.ok(res, result.idempotent ? 'Payment already recorded.' : 'Payment recorded.', {
+    invoice: result.invoice,
+    payment: result.payment,
+    voucher: result.voucher,
+    idempotent: result.idempotent,
+  });
 });
 const deleteInvoice = asyncHandler(async (req, res) => {
   const result = await feeService.deleteInvoice(req.auth.schoolId, req.params.id);
@@ -90,6 +96,32 @@ const getVoucherTemplate = asyncHandler(async (req, res) => {
 const updateVoucherTemplate = asyncHandler(async (req, res) => {
   const data = await feeService.updateVoucherTemplate(req.auth.schoolId, req.body);
   return ApiResponse.ok(res, 'Fee voucher template saved.', data);
+});
+
+const listPayments = asyncHandler(async (req, res) => {
+  const data = await feePaymentService.listPayments(req.auth.schoolId, req.query);
+  return ApiResponse.ok(res, 'Fee payments loaded.', data);
+});
+
+const getPayment = asyncHandler(async (req, res) => {
+  const payment = await feePaymentService.getPayment(req.auth.schoolId, req.params.id);
+  return ApiResponse.ok(res, 'Fee payment loaded.', { payment });
+});
+
+const getReceipt = asyncHandler(async (req, res) => {
+  const duplicate = String(req.query.duplicate || '').toLowerCase() === 'true';
+  const receipt = await feePaymentService.getReceipt(req.auth.schoolId, req.params.id, { duplicate });
+  return ApiResponse.ok(res, 'Fee receipt loaded.', { receipt });
+});
+
+const reprintReceipt = asyncHandler(async (req, res) => {
+  const receipt = await feePaymentService.recordReprint(req.auth.schoolId, req.params.id, req.auth);
+  return ApiResponse.ok(res, 'Duplicate receipt prepared.', { receipt });
+});
+
+const listInvoicePayments = asyncHandler(async (req, res) => {
+  const payments = await feePaymentService.listInvoicePayments(req.auth.schoolId, req.params.id);
+  return ApiResponse.ok(res, 'Invoice payments loaded.', { payments });
 });
 
 module.exports = {
@@ -112,4 +144,9 @@ module.exports = {
   deleteInvoice,
   getVoucherTemplate,
   updateVoucherTemplate,
+  listPayments,
+  getPayment,
+  getReceipt,
+  reprintReceipt,
+  listInvoicePayments,
 };

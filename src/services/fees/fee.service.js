@@ -90,6 +90,7 @@ function serializeInvoice(r) {
     studentCode: r.studentCode || null,
     cls: r.cls,
     section: r.section,
+    session: r.session || null,
     period: r.period,
     issue: r.issue,
     due: r.due,
@@ -353,9 +354,25 @@ async function listInvoices(schoolId, { q, cls, status, branchId } = {}) {
   if (cls) where.cls = trimmed(cls);
   if (status) where.status = trimmed(status);
   if (q) {
+    const term = trimmed(q);
+    const matchingStudents = await prisma.student.findMany({
+      where: {
+        schoolId,
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { studentId: { contains: term, mode: 'insensitive' } },
+          { admissionNo: { contains: term, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    });
+    const studentIds = matchingStudents.map((s) => s.id);
     where.OR = [
-      { student: { contains: trimmed(q), mode: 'insensitive' } },
-      { invoiceNo: { contains: trimmed(q), mode: 'insensitive' } },
+      { student: { contains: term, mode: 'insensitive' } },
+      { invoiceNo: { contains: term, mode: 'insensitive' } },
+      { studentCode: { contains: term, mode: 'insensitive' } },
+      ...(studentIds.length ? [{ studentId: { in: studentIds } }] : []),
     ];
   }
 
@@ -373,6 +390,7 @@ async function createInvoice(schoolId, input) {
   let cls = trimmed(input.cls);
   let section = trimmed(input.section);
   let branchId = input.branchId && input.branchId !== 'all' ? input.branchId : null;
+  let session = trimmed(input.session) || null;
 
   if (studentId) {
     const st = await prisma.student.findFirst({ where: { id: studentId, schoolId } });
@@ -382,6 +400,7 @@ async function createInvoice(schoolId, input) {
     cls = st.cls;
     section = st.section;
     branchId = branchId || st.branchId || null;
+    if (!session) session = st.session || null;
   }
 
   if (!student) throw badRequest('Student is required.');
@@ -392,7 +411,7 @@ async function createInvoice(schoolId, input) {
   const issue = trimmed(input.issue) || new Date().toISOString().slice(0, 10);
   const due = trimmed(input.due) || issue;
 
-  const session = trimmed(input.session) || '2025-2026';
+  if (!session) session = '2025-2026';
   let lines = Array.isArray(input.lines) ? input.lines : [];
 
   // Prefer class fee structure amounts over catalog (particular) defaults.
@@ -481,6 +500,7 @@ async function createInvoice(schoolId, input) {
       studentCode,
       cls,
       section,
+      session,
       period,
       issue,
       due,
@@ -502,23 +522,50 @@ async function updateInvoice(schoolId, id, input) {
   const existing = await prisma.feeInvoice.findFirst({ where: { id, schoolId } });
   if (!existing) throw notFound('Invoice not found.');
 
+  // Paid / Partially Paid status (and paid amount) must come from recordPayment /
+  // collectPayment — never from a manual status override.
+  if (input.status !== undefined) {
+    const nextStatus = trimmed(input.status);
+    if (nextStatus === 'Paid' || nextStatus === 'Partially Paid') {
+      throw badRequest(
+        'Cannot mark an invoice as paid manually. Record a fee payment to update payment status.'
+      );
+    }
+  }
+  if (input.paid !== undefined && toInt(input.paid) !== existing.paid) {
+    throw badRequest(
+      'Cannot change paid amount directly. Record a fee payment to update collections.'
+    );
+  }
+
   const data = {};
   if (input.period !== undefined) data.period = trimmed(input.period);
   if (input.issue !== undefined) data.issue = trimmed(input.issue);
   if (input.due !== undefined) data.due = trimmed(input.due);
   if (input.discount !== undefined) data.discount = toInt(input.discount);
-  if (input.paid !== undefined) data.paid = toInt(input.paid);
   if (input.total !== undefined) data.total = toInt(input.total);
+  if (input.session !== undefined) data.session = trimmed(input.session) || null;
   if (input.lines !== undefined) data.lines = Array.isArray(input.lines) ? input.lines : existing.lines;
 
   const total = data.total ?? existing.total;
   const discount = data.discount ?? existing.discount;
-  const paid = data.paid ?? existing.paid;
+  const paid = existing.paid;
   const due = data.due ?? existing.due;
 
   if (input.status !== undefined && INVOICE_STATUSES.has(trimmed(input.status))) {
-    data.status = trimmed(input.status);
-    data.balance = Math.max(0, total - discount - paid);
+    const nextStatus = trimmed(input.status);
+    // Allow Overdue / Pending adjustments only when consistent with balances.
+    const derived = deriveInvoiceStatus({ total, discount, paid, due });
+    if (nextStatus === 'Overdue' && derived.balance > 0) {
+      data.status = 'Overdue';
+      data.balance = derived.balance;
+    } else if (nextStatus === 'Pending' && paid === 0 && derived.balance > 0) {
+      data.status = derived.status === 'Overdue' ? 'Overdue' : 'Pending';
+      data.balance = derived.balance;
+    } else {
+      data.balance = derived.balance;
+      data.status = derived.status;
+    }
   } else {
     const derived = deriveInvoiceStatus({ total, discount, paid, due });
     data.balance = derived.balance;
@@ -528,43 +575,13 @@ async function updateInvoice(schoolId, id, input) {
   return serializeInvoice(await prisma.feeInvoice.update({ where: { id }, data }));
 }
 
-async function recordPayment(schoolId, id, input = {}) {
-  const existing = await prisma.feeInvoice.findFirst({ where: { id, schoolId } });
-  if (!existing) throw notFound('Invoice not found.');
-
-  const amount = input.amount !== undefined ? toInt(input.amount) : existing.balance;
-  const paid = Math.min(existing.total - existing.discount, existing.paid + Math.max(0, amount));
-  const derived = deriveInvoiceStatus({
-    total: existing.total,
-    discount: existing.discount,
-    paid,
-    due: existing.due,
-  });
-  const payDelta = Math.max(0, paid - existing.paid);
-  const updatedInvoice = await prisma.feeInvoice.update({
-    where: { id },
-    data: { paid, balance: derived.balance, status: derived.status },
-  });
-
-  if (payDelta > 0) {
-    try {
-      const voucherService = require('../accounts/voucher.service');
-      await voucherService.createVoucher(schoolId, {
-        kind: 'Receipt',
-        party: existing.student,
-        account: 'Tuition Fees',
-        amount: payDelta,
-        method: input.method || 'Cash',
-        reference: existing.invoiceNo,
-        status: 'Posted',
-        branchId: existing.branchId || input.branchId || null,
-      });
-    } catch (e) {
-      // logger fallback
-    }
-  }
-
-  return serializeInvoice(updatedInvoice);
+/**
+ * Record a payment — delegates to the shared fee-payment service so receipts,
+ * vouchers and journal entries stay consistent with receivables collection.
+ */
+async function recordPayment(schoolId, id, input = {}, auth = {}) {
+  const feePaymentService = require('./fee-payment.service');
+  return feePaymentService.collectPayment(schoolId, id, input, auth);
 }
 
 async function deleteInvoice(schoolId, id) {
