@@ -23,6 +23,22 @@ if (!env.isProduction) {
 }
 
 /**
+ * Safety net for deploys where `prisma migrate deploy` did not run (or failed).
+ * Keeps fee payment + receipt endpoints from crashing on missing snapshot columns.
+ */
+async function ensureFeePaymentCashBankColumns() {
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "fee_payments" ADD COLUMN IF NOT EXISTS "cashBankAccountId" TEXT;
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "fee_payments" ADD COLUMN IF NOT EXISTS "cashBankAccountName" TEXT NOT NULL DEFAULT '';
+  `);
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "fee_payments" ADD COLUMN IF NOT EXISTS "cashBankAccountNumber" TEXT NOT NULL DEFAULT '';
+  `);
+}
+
+/**
  * Verify the connection on boot so a bad DATABASE_URL fails loudly instead of
  * surfacing as a confusing 500 on the first request.
  */
@@ -30,6 +46,12 @@ async function connectDatabase() {
   try {
     await prisma.$connect();
     await prisma.$queryRaw`SELECT 1`;
+    try {
+      await ensureFeePaymentCashBankColumns();
+    } catch (schemaError) {
+      // Do not block boot on a race with a concurrent migrate; log and continue.
+      logger.warn('Could not ensure fee_payments cash/bank columns:', schemaError.message);
+    }
     logger.info('Database connection established.');
   } catch (error) {
     logger.error('Unable to connect to the database:', error.message);

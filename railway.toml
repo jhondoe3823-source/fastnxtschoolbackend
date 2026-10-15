@@ -1,7 +1,7 @@
-# Railway: run migrations once per deploy (pre-deploy), not on every container restart.
-# That avoids Prisma advisory-lock crash loops when Neon is slow or a prior migrate is stuck.
-# Note: `releaseCommand` is not a valid Railway config key — use `preDeployCommand`.
+# Run migrations before traffic (pre-deploy) and again on boot as a safety net.
+# Production was missing fee_payments.cashBankAccountId because migrations never ran.
 [deploy]
 preDeployCommand = ["npx prisma migrate deploy"]
+startCommand = "npx prisma migrate deploy && node server.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
