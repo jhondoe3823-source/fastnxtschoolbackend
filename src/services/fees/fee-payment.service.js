@@ -170,8 +170,7 @@ async function resolveCashBankAccount(tx, schoolId, method, preferredId) {
     }
   }
 
-  await accountService.ensureDefaultChartOfAccounts(schoolId);
-
+  // Chart of accounts must already be ensured by the caller (outside the tx).
   let account = null;
   if (method === 'Cash') {
     account =
@@ -201,7 +200,7 @@ async function resolveCashBankAccount(tx, schoolId, method, preferredId) {
 }
 
 async function resolveTuitionAccount(tx, schoolId) {
-  await accountService.ensureDefaultChartOfAccounts(schoolId);
+  // Chart of accounts must already be ensured by the caller (outside the tx).
   const byName = await tx.account.findFirst({
     where: { schoolId, name: 'Tuition Fees', isActive: true },
   });
@@ -281,199 +280,207 @@ async function collectPayment(schoolId, invoiceId, input = {}, auth = {}) {
   const reference = trimmed(input.reference);
   const schoolSnapshot = await buildSchoolSnapshot(schoolId);
 
+  // Heavy setup stays outside the interactive transaction — Neon/Railway often
+  // exceeds Prisma's default 5s timeout when chart-of-accounts seeding runs inside.
+  await accountService.ensureDefaultChartOfAccounts(schoolId);
+  const preferredBranchId = await resolveBranchId(schoolId, input.branchId);
+
   const maxAttempts = 5;
   let lastError = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      const result = await prisma.$transaction(async (tx) => {
-        const inv = await tx.feeInvoice.findFirst({ where: { id: invoiceId, schoolId } });
-        if (!inv) throw notFound('Fee invoice not found.');
+      const result = await prisma.$transaction(
+        async (tx) => {
+          const inv = await tx.feeInvoice.findFirst({ where: { id: invoiceId, schoolId } });
+          if (!inv) throw notFound('Fee invoice not found.');
 
-        const net = Math.max(0, inv.total - inv.discount);
-        const previousBalance = Math.max(0, net - inv.paid);
-        if (previousBalance <= 0) {
-          throw badRequest('This invoice is already fully paid.');
-        }
-
-        const requested =
-          input.amount !== undefined && input.amount !== null && input.amount !== ''
-            ? toInt(input.amount)
-            : previousBalance;
-
-        if (requested <= 0) throw badRequest('Payment amount must be greater than zero.');
-        if (requested > previousBalance) {
-          throw badRequest(
-            `Payment amount (Rs ${requested}) exceeds outstanding balance (Rs ${previousBalance}).`
-          );
-        }
-
-        let studentMeta = {
-          admissionNo: null,
-          session: inv.session || null,
-          studentCode: inv.studentCode || null,
-        };
-        if (inv.studentId) {
-          const st = await tx.student.findFirst({
-            where: { id: inv.studentId, schoolId },
-            select: { admissionNo: true, session: true, studentId: true },
-          });
-          if (st) {
-            studentMeta = {
-              admissionNo: st.admissionNo || null,
-              session: inv.session || st.session || schoolSnapshot.academicSession || null,
-              studentCode: inv.studentCode || st.studentId || null,
-            };
+          const net = Math.max(0, inv.total - inv.discount);
+          const previousBalance = Math.max(0, net - inv.paid);
+          if (previousBalance <= 0) {
+            throw badRequest('This invoice is already fully paid.');
           }
-        }
 
-        const newPaid = inv.paid + requested;
-        const derived = deriveInvoiceStatus({
-          total: inv.total,
-          discount: inv.discount,
-          paid: newPaid,
-          due: inv.due,
-        });
-        const paymentStatus = derived.balance === 0 ? 'PAID' : 'PARTIAL PAYMENT';
+          const requested =
+            input.amount !== undefined && input.amount !== null && input.amount !== ''
+              ? toInt(input.amount)
+              : previousBalance;
 
-        const receiptNo = await nextReceiptNo(tx, schoolId);
-        const branchId = inv.branchId || (await resolveBranchId(schoolId, input.branchId));
+          if (requested <= 0) throw badRequest('Payment amount must be greater than zero.');
+          if (requested > previousBalance) {
+            throw badRequest(
+              `Payment amount (Rs ${requested}) exceeds outstanding balance (Rs ${previousBalance}).`
+            );
+          }
 
-        const tuitionAcc = await resolveTuitionAccount(tx, schoolId);
-        if (!tuitionAcc) throw badRequest('Tuition Fees account is not configured.');
+          let studentMeta = {
+            admissionNo: null,
+            session: inv.session || null,
+            studentCode: inv.studentCode || null,
+          };
+          if (inv.studentId) {
+            const st = await tx.student.findFirst({
+              where: { id: inv.studentId, schoolId },
+              select: { admissionNo: true, session: true, studentId: true },
+            });
+            if (st) {
+              studentMeta = {
+                admissionNo: st.admissionNo || null,
+                session: inv.session || st.session || schoolSnapshot.academicSession || null,
+                studentCode: inv.studentCode || st.studentId || null,
+              };
+            }
+          }
 
-        const cashBankResolved = await resolveCashBankAccount(
-          tx,
-          schoolId,
-          method,
-          trimmed(input.cashBankAccountId) || null
-        );
-        if (!cashBankResolved?.account) {
-          throw badRequest(
-            method === 'Cash'
-              ? 'Could not resolve a Cash account. Please select one.'
-              : 'Could not resolve a Bank account. Please select one.'
-          );
-        }
-        const cashBankAcc = cashBankResolved.account;
-
-        const voucherNo = await nextVoucherNo(tx, schoolId, 'Receipt');
-        const jeNo = await nextJournalNo(tx, schoolId);
-        const paidAt = new Date();
-
-        const journal = await tx.journalEntry.create({
-          data: {
-            schoolId,
-            branchId,
-            no: jeNo,
-            date: paidAt,
-            description: `Fee receipt ${receiptNo} — ${inv.student} (${inv.invoiceNo})`,
-            reference: receiptNo,
-            status: 'Posted',
-            notes: `Fee payment for invoice ${inv.invoiceNo}`,
-            createdById: cashierId || null,
-            createdByName: cashierName || 'System',
-            postedAt: paidAt,
-            lines: {
-              create: [
-                {
-                  accountId: cashBankAcc.id,
-                  description: `Fee receipt from ${inv.student} (${receiptNo})`,
-                  debit: requested,
-                  credit: 0,
-                },
-                {
-                  accountId: tuitionAcc.id,
-                  description: `Fee receipt for ${inv.student} (${receiptNo})`,
-                  debit: 0,
-                  credit: requested,
-                },
-              ],
-            },
-          },
-        });
-
-        const voucher = await tx.voucher.create({
-          data: {
-            schoolId,
-            branchId,
-            no: voucherNo,
-            kind: 'Receipt',
-            date: paidAt,
-            party: inv.student,
-            accountId: tuitionAcc.id,
-            amount: requested,
-            method,
-            cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
-            reference: `${inv.invoiceNo} / ${receiptNo}`,
-            status: 'Posted',
-            journalEntryId: journal.id,
-          },
-        });
-
-        const payment = await tx.feePayment.create({
-          data: {
-            schoolId,
-            branchId,
-            receiptNo,
-            invoiceId: inv.id,
-            invoiceNo: inv.invoiceNo,
-            studentId: inv.studentId || null,
-            studentName: inv.student,
-            studentCode: studentMeta.studentCode,
-            admissionNo: studentMeta.admissionNo,
-            cls: inv.cls,
-            section: inv.section,
-            session: studentMeta.session,
-            period: inv.period,
-            amount: requested,
-            method,
-            reference,
-            cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
-            cashBankAccountName: cashBankResolved.cashBankAccountName || '',
-            cashBankAccountNumber: cashBankResolved.cashBankAccountNumber || '',
-            cashierId,
-            cashierName,
-            paidAt,
-            grossAmount: inv.total,
+          const newPaid = inv.paid + requested;
+          const derived = deriveInvoiceStatus({
+            total: inv.total,
             discount: inv.discount,
-            previousBalance,
-            remainingBalance: derived.balance,
-            status: paymentStatus,
-            linesSnapshot: Array.isArray(inv.lines) ? inv.lines : [],
-            schoolSnapshot,
-            voucherId: voucher.id,
-            voucherNo: voucher.no,
-            journalEntryId: journal.id,
-            idempotencyKey,
-          },
-        });
-
-        const updatedInvoice = await tx.feeInvoice.update({
-          where: { id: inv.id },
-          data: {
             paid: newPaid,
-            balance: derived.balance,
-            status: derived.status,
-            session: inv.session || studentMeta.session || null,
-          },
-        });
+            due: inv.due,
+          });
+          const paymentStatus = derived.balance === 0 ? 'PAID' : 'PARTIAL PAYMENT';
 
-        return {
-          invoice: serializeInvoice(updatedInvoice),
-          payment: serializePayment(payment),
-          voucher: {
-            id: voucher.id,
-            no: voucher.no,
-            kind: voucher.kind,
-            amount: voucher.amount,
-            method: voucher.method,
-            journalEntryId: journal.id,
-            status: voucher.status,
-          },
-          idempotent: false,
-        };
-      });
+          const receiptNo = await nextReceiptNo(tx, schoolId);
+          const branchId = inv.branchId || preferredBranchId;
+
+          const tuitionAcc = await resolveTuitionAccount(tx, schoolId);
+          if (!tuitionAcc) throw badRequest('Tuition Fees account is not configured.');
+
+          const cashBankResolved = await resolveCashBankAccount(
+            tx,
+            schoolId,
+            method,
+            trimmed(input.cashBankAccountId) || null
+          );
+          if (!cashBankResolved?.account) {
+            throw badRequest(
+              method === 'Cash'
+                ? 'Could not resolve a Cash account. Please select one.'
+                : 'Could not resolve a Bank account. Please select one.'
+            );
+          }
+          const cashBankAcc = cashBankResolved.account;
+
+          const voucherNo = await nextVoucherNo(tx, schoolId, 'Receipt');
+          const jeNo = await nextJournalNo(tx, schoolId);
+          const paidAt = new Date();
+
+          const journal = await tx.journalEntry.create({
+            data: {
+              schoolId,
+              branchId,
+              no: jeNo,
+              date: paidAt,
+              description: `Fee receipt ${receiptNo} — ${inv.student} (${inv.invoiceNo})`,
+              reference: receiptNo,
+              status: 'Posted',
+              notes: `Fee payment for invoice ${inv.invoiceNo}`,
+              createdById: cashierId || null,
+              createdByName: cashierName || 'System',
+              postedAt: paidAt,
+              lines: {
+                create: [
+                  {
+                    accountId: cashBankAcc.id,
+                    description: `Fee receipt from ${inv.student} (${receiptNo})`,
+                    debit: requested,
+                    credit: 0,
+                  },
+                  {
+                    accountId: tuitionAcc.id,
+                    description: `Fee receipt for ${inv.student} (${receiptNo})`,
+                    debit: 0,
+                    credit: requested,
+                  },
+                ],
+              },
+            },
+          });
+
+          const voucher = await tx.voucher.create({
+            data: {
+              schoolId,
+              branchId,
+              no: voucherNo,
+              kind: 'Receipt',
+              date: paidAt,
+              party: inv.student,
+              accountId: tuitionAcc.id,
+              amount: requested,
+              method,
+              cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
+              reference: `${inv.invoiceNo} / ${receiptNo}`,
+              status: 'Posted',
+              journalEntryId: journal.id,
+            },
+          });
+
+          const payment = await tx.feePayment.create({
+            data: {
+              schoolId,
+              branchId,
+              receiptNo,
+              invoiceId: inv.id,
+              invoiceNo: inv.invoiceNo,
+              studentId: inv.studentId || null,
+              studentName: inv.student,
+              studentCode: studentMeta.studentCode,
+              admissionNo: studentMeta.admissionNo,
+              cls: inv.cls,
+              section: inv.section,
+              session: studentMeta.session,
+              period: inv.period,
+              amount: requested,
+              method,
+              reference,
+              cashBankAccountId: cashBankResolved.cashBankAccountId || cashBankAcc.id,
+              cashBankAccountName: cashBankResolved.cashBankAccountName || '',
+              cashBankAccountNumber: cashBankResolved.cashBankAccountNumber || '',
+              cashierId,
+              cashierName,
+              paidAt,
+              grossAmount: inv.total,
+              discount: inv.discount,
+              previousBalance,
+              remainingBalance: derived.balance,
+              status: paymentStatus,
+              linesSnapshot: Array.isArray(inv.lines) ? inv.lines : [],
+              schoolSnapshot,
+              voucherId: voucher.id,
+              voucherNo: voucher.no,
+              journalEntryId: journal.id,
+              idempotencyKey,
+            },
+          });
+
+          const updatedInvoice = await tx.feeInvoice.update({
+            where: { id: inv.id },
+            data: {
+              paid: newPaid,
+              balance: derived.balance,
+              status: derived.status,
+              session: inv.session || studentMeta.session || null,
+            },
+          });
+
+          return {
+            invoice: serializeInvoice(updatedInvoice),
+            payment: serializePayment(payment),
+            voucher: {
+              id: voucher.id,
+              no: voucher.no,
+              kind: voucher.kind,
+              amount: voucher.amount,
+              method: voucher.method,
+              journalEntryId: journal.id,
+              status: voucher.status,
+            },
+            idempotent: false,
+          };
+        },
+        { maxWait: 10000, timeout: 20000 }
+      );
 
       logger.info(
         `Fee payment ${result.payment.receiptNo}: Rs ${result.payment.amount} for invoice ${result.invoice.invoiceNo}`
