@@ -1,5 +1,5 @@
 /**
- * HTML email templates — platform (BisonsTechs) or school-branded.
+ * HTML email templates — platform (FastNxt) or school-branded.
  */
 
 const env = require('../../config/env');
@@ -76,9 +76,8 @@ function layout(opts) {
             <td style="padding:20px 32px 28px;border-top:1px solid #eef2f7;">
               <p style="margin:0;font-size:12px;line-height:1.55;color:#94a3b8;">
                 ${escapeHtml(opts.footerNote || `You're receiving this email from ${product}.`)}
-                <br />
-                <a href="${escapeHtml(website)}" style="color:${accent};text-decoration:none;">${escapeHtml(website.replace(/^https?:\/\//, ''))}</a>
-                ${support ? ` · <a href="mailto:${escapeHtml(support)}" style="color:${accent};text-decoration:none;">${escapeHtml(support)}</a>` : ''}
+                ${website ? `<br /><a href="${escapeHtml(website)}" style="color:${accent};text-decoration:none;">${escapeHtml(website.replace(/^https?:\/\//, ''))}</a>` : ''}
+                ${support ? `${website ? ' · ' : '<br />'}<a href="mailto:${escapeHtml(support)}" style="color:${accent};text-decoration:none;">${escapeHtml(support)}</a>` : ''}
               </p>
             </td>
           </tr>

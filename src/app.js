@@ -39,7 +39,7 @@ app.use(cookieParser());
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'BisonsEduCore360 API is running',
+    message: 'FastNxt API is running',
     data: { version: '0.1.0', docs: '/api/health' },
   });
 });

@@ -72,7 +72,7 @@ async function deliver({
   return result;
 }
 
-/** Platform welcome email (BisonsTechs branding) after school registration. */
+/** Platform welcome email (FastNxt branding) after school registration. */
 async function sendWelcomeEmail({ to, name, schoolName, schoolId, userId, trialDays }) {
   const days = trialDays || env.subscription.trialDays;
   const content = templates.welcomePlatform({ name, schoolName, trialDays: days });

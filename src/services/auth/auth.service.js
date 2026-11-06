@@ -21,7 +21,7 @@ const {
 } = require('../../constants');
 
 const SCHOOL_DEACTIVATED_MESSAGE =
-  'This school has been deactivated. Please contact BisonsTechs support.';
+  'This school has been deactivated. Please contact FastNxt support.';
 
 const SALT_ROUNDS = 10;
 

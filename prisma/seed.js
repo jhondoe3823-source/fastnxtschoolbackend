@@ -16,7 +16,7 @@ const DEMO = {
   schoolName: 'Demo Public School',
   name: 'Demo Admin',
   ownerName: 'Demo Owner',
-  email: 'admin@demo.bisonseducore360.test',
+  email: 'admin@demo.fastnxt.test',
   password: 'Password123',
   phone: '+92 300 0000000',
   country: 'Pakistan',

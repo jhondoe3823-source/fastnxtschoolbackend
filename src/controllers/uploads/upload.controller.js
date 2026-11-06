@@ -34,8 +34,8 @@ const uploadFile = asyncHandler(async (req, res) => {
   const purpose = PURPOSES.has(purposeRaw) ? purposeRaw : 'other';
 
   const folder = folderHint
-    ? `bisonseducore360/schools/${schoolId}/${folderHint}`
-    : `bisonseducore360/schools/${schoolId}/${purpose}`;
+    ? `fastnxt/schools/${schoolId}/${folderHint}`
+    : `fastnxt/schools/${schoolId}/${purpose}`;
 
   const uploaded = await cloudinaryService.uploadBuffer(req.file.buffer, {
     folder,

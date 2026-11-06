@@ -1,8 +1,8 @@
 {
-  "name": "bisonseducore360-backend",
+  "name": "fastnxtschool_backend",
   "version": "0.1.0",
   "private": true,
-  "description": "BisonsEduCore360 API — authentication, school registration and subscription foundation",
+  "description": "FastNxt API — authentication, school registration and subscription foundation",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",

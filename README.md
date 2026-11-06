@@ -1,6 +1,6 @@
-# BisonsEduCore360 — Backend API
+# FastNxt — Backend API
 
-Express + Prisma (PostgreSQL) API for the BisonsEduCore360 school management system.
+Express + Prisma (PostgreSQL) API for the FastNxt school management system.
 
 This service currently implements the **authentication, school registration,
 subscription and institute-profile foundation** only:

@@ -21,7 +21,7 @@ async function start() {
   }
 
   const server = app.listen(env.port, env.host, () => {
-    logger.info(`BisonsEduCore360 API listening on http://${env.host}:${env.port} (${env.nodeEnv})`);
+    logger.info(`FastNxt API listening on http://${env.host}:${env.port} (${env.nodeEnv})`);
     logger.info(`Allowed origins: ${env.corsOrigins.join(', ') || '(none configured)'}`);
     logger.info(`Trial length: ${env.subscription.trialDays} day(s).`);
   });

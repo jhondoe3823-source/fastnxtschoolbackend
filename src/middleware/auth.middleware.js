@@ -35,7 +35,7 @@ async function requireAuth(req, res, next) {
       if (school && school.isActive === false) {
         return ApiResponse.forbidden(
           res,
-          'This school has been deactivated. Please contact BisonsTechs support.',
+          'This school has been deactivated. Please contact FastNxt support.',
           ERROR_CODES.SCHOOL_DEACTIVATED
         );
       }

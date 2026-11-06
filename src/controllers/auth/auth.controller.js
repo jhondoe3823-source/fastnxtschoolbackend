@@ -34,7 +34,7 @@ const register = asyncHandler(async (req, res) => {
   const token = issueToken(session.user);
   setSessionCookie(res, token);
 
-  // Welcome email (Resend / BisonsTechs branding) + in-app notification — best-effort.
+  // Welcome email (Resend / FastNxt branding) + in-app notification — best-effort.
   Promise.all([
     emailService.sendWelcomeEmail({
       to: session.user.email,
@@ -46,7 +46,7 @@ const register = asyncHandler(async (req, res) => {
     notificationService.createNotification({
       schoolId: session.school.id,
       userId: session.user.id,
-      title: 'Welcome to BisonsEduCore360',
+      title: 'Welcome to FastNxt',
       message: `Your school "${session.school.name}" is ready. Start by adding classes and students.`,
       icon: 'system',
       tone: 'blue',

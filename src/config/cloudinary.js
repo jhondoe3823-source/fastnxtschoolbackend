@@ -29,5 +29,5 @@ module.exports = {
   isConfigured,
   cloudName: env.cloudinary.cloudName,
   apiKey: env.cloudinary.apiKey,
-  folder: env.cloudinary.folder || 'bisonseducore360',
+  folder: env.cloudinary.folder || 'fastnxt',
 };

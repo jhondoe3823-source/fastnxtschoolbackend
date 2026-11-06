@@ -4,7 +4,7 @@
  * Env:
  *   EMAIL_ENABLED=true
  *   RESEND_API_KEY=re_...
- *   EMAIL_FROM=BisonsEduCore360 <no-reply@bisonstechs.com>
+ *   EMAIL_FROM=FastNxt <no-reply@example.com>
  */
 
 const { Resend } = require('resend');

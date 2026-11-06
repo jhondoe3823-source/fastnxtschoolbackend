@@ -29,7 +29,7 @@ const uploadLogo = asyncHandler(async (req, res) => {
   if (!req.file) throw badRequest('No logo file uploaded. Use form field "file".');
 
   const uploaded = await cloudinaryService.uploadBuffer(req.file.buffer, {
-    folder: `bisonseducore360/schools/${req.auth.schoolId}/logo`,
+    folder: `fastnxt/schools/${req.auth.schoolId}/logo`,
     publicId: 'logo',
     overwrite: true,
     resourceType: 'image',

@@ -5,9 +5,7 @@
 const env = require('../../config/env');
 const { unauthorized } = require('../../utils/errors');
 
-const ADMIN_NAMES = {
-  'adminbisonseducore360@gmail.com': 'Platform Admin',
-};
+const ADMIN_NAMES = {};
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 

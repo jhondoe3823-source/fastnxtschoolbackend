@@ -81,23 +81,20 @@ const env = {
 
   email: {
     enabled: bool('EMAIL_ENABLED', false),
-    from: str('EMAIL_FROM', 'BisonsEduCore360 <no-reply@bisonstechs.com>'),
+    from: str('EMAIL_FROM', ''),
     replyTo: str('EMAIL_REPLY_TO', ''),
     /** Resend API key — https://resend.com/api-keys */
     resendApiKey: str('RESEND_API_KEY'),
   },
 
   brand: {
-    name: str('BRAND_NAME', 'BisonsTechs'),
-    productName: str('PRODUCT_NAME', 'BisonsEduCore360'),
+    name: str('BRAND_NAME', 'FastNxt'),
+    productName: str('PRODUCT_NAME', 'FastNxt'),
     /** Absolute HTTPS URL used in platform emails (welcome, system). */
-    logoUrl: str(
-      'BRAND_LOGO_URL',
-      'https://bisonstechs.com/logo.png'
-    ),
-    website: str('BRAND_WEBSITE', 'https://bisonstechs.com'),
+    logoUrl: str('BRAND_LOGO_URL', ''),
+    website: str('BRAND_WEBSITE', ''),
     appUrl: str('APP_URL', 'http://localhost:3000'),
-    supportEmail: str('SUPPORT_EMAIL', 'support@bisonstechs.com'),
+    supportEmail: str('SUPPORT_EMAIL', ''),
   },
 
   cloudinary: {
@@ -105,19 +102,19 @@ const env = {
     cloudName: str('CLOUDINARY_CLOUD_NAME'),
     apiKey: str('CLOUDINARY_API_KEY'),
     apiSecret: str('CLOUDINARY_API_SECRET'),
-    folder: str('CLOUDINARY_FOLDER', 'bisonseducore360'),
+    folder: str('CLOUDINARY_FOLDER', 'fastnxt'),
   },
 
   /**
-   * Platform admin console (bisonseducore_360_admin).
+   * Platform admin console.
    * Only these emails can sign in; they share PLATFORM_ADMIN_PASSWORD.
    */
   platform: {
-    emails: str('PLATFORM_ADMIN_EMAILS', 'adminbisonseducore360@gmail.com')
+    emails: str('PLATFORM_ADMIN_EMAILS', '')
       .split(',')
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
-    password: str('PLATFORM_ADMIN_PASSWORD', 'BisonsAdmin@360'),
+    password: str('PLATFORM_ADMIN_PASSWORD', ''),
     cookieName: str('PLATFORM_COOKIE_NAME', 'bisons_platform_session'),
   },
 };
