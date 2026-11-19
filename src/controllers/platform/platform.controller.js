@@ -92,6 +92,16 @@ const setPlan = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, `Plan set to ${String(plan).toUpperCase()}.`, data);
 });
 
+const setAdmissionForm = asyncHandler(async (req, res) => {
+  const enabled = req.body?.enabled;
+  const data = await platformSchools.setAdmissionForm(req.params.id, enabled);
+  return ApiResponse.ok(
+    res,
+    enabled ? 'A+ admission form enabled.' : 'Standard admission form restored.',
+    data
+  );
+});
+
 module.exports = {
   login,
   me,
@@ -102,4 +112,5 @@ module.exports = {
   setSchoolActive,
   extendTrial,
   setPlan,
+  setAdmissionForm,
 };

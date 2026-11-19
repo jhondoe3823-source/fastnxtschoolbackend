@@ -77,6 +77,8 @@ model School {
   admissionLetterTemplate Json?
   /// Editable job / appointment letter layout.
   jobLetterTemplate Json?
+  /// Per-school admission application form variant + labels (standard | apl-legal-it).
+  admissionFormConfig Json?
   /// Platform admin can deactivate a whole school — users cannot sign in.
   isActive Boolean @default(true)
 
@@ -570,6 +572,8 @@ model Student {
   prevSchool    String?
   medical       String?
   notes         String?
+  /// School-specific admission extras (CNIC, programs, qualifications, fees, checklist).
+  admissionExtras Json?
   /// [{ id, name, type, url, publicId?, size?, uploadDate }] — Cloudinary docs
   documents     Json     @default("[]")
   status        String   @default("Active") // "Active" | "Inactive"

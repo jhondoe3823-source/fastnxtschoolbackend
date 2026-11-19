@@ -20,6 +20,8 @@ router.use(requireAuth);
 
 router.get('/profile', controller.getProfile);
 router.patch('/profile', validateUpdateProfile, controller.updateProfile);
+router.get('/admission-form-config', controller.getAdmissionFormConfig);
+router.patch('/admission-form-config', controller.updateAdmissionFormConfig);
 router.post('/logo', (req, res, next) => {
   singleImage(req, res, (err) => {
     if (err) return handleMulterError(err, req, res, next);

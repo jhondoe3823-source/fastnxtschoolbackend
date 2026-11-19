@@ -10,6 +10,7 @@
  *   PATCH /api/platform/schools/:id/status
  *   POST  /api/platform/schools/:id/extend-trial
  *   POST  /api/platform/schools/:id/set-plan
+ *   PATCH /api/platform/schools/:id/admission-form
  */
 
 const express = require('express');
@@ -36,5 +37,6 @@ router.get('/schools/:id', requirePlatformAuth, controller.getSchool);
 router.patch('/schools/:id/status', requirePlatformAuth, controller.setSchoolActive);
 router.post('/schools/:id/extend-trial', requirePlatformAuth, controller.extendTrial);
 router.post('/schools/:id/set-plan', requirePlatformAuth, controller.setPlan);
+router.patch('/schools/:id/admission-form', requirePlatformAuth, controller.setAdmissionForm);
 
 module.exports = router;

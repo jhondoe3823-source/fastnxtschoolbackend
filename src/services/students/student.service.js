@@ -10,6 +10,51 @@ const bcrypt = require('bcryptjs');
 
 const trimmed = (val) => String(val ?? '').trim();
 
+/** Normalize school-specific admission extras (A+ form etc.). */
+function normalizeAdmissionExtras(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const src = raw;
+  const qualifications = Array.isArray(src.qualifications)
+    ? src.qualifications.map((row) => ({
+        level: trimmed(row?.level),
+        board: trimmed(row?.board),
+        year: trimmed(row?.year),
+        totalMarks: trimmed(row?.totalMarks),
+        obtainedMarks: trimmed(row?.obtainedMarks),
+        percentage: trimmed(row?.percentage),
+      }))
+    : [];
+  const programs = Array.isArray(src.programs) ? src.programs.map((p) => trimmed(p)).filter(Boolean) : [];
+  const documentsChecklist = Array.isArray(src.documentsChecklist)
+    ? src.documentsChecklist.map((d) => trimmed(d)).filter(Boolean)
+    : [];
+  const fees =
+    src.fees && typeof src.fees === 'object' && !Array.isArray(src.fees)
+      ? {
+          admissionFee: trimmed(src.fees.admissionFee),
+          courseFee: trimmed(src.fees.courseFee),
+          monthlyFee: trimmed(src.fees.monthlyFee),
+          discount: trimmed(src.fees.discount),
+          receiptNo: trimmed(src.fees.receiptNo),
+          paymentDate: trimmed(src.fees.paymentDate),
+          remarks: trimmed(src.fees.remarks),
+        }
+      : null;
+
+  return {
+    formNo: trimmed(src.formNo) || undefined,
+    cnic: trimmed(src.cnic) || undefined,
+    guardianCnic: trimmed(src.guardianCnic) || undefined,
+    altPhone: trimmed(src.altPhone) || undefined,
+    programOther: trimmed(src.programOther) || undefined,
+    documentOther: trimmed(src.documentOther) || undefined,
+    programs,
+    qualifications,
+    documentsChecklist,
+    fees: fees || undefined,
+  };
+}
+
 /** Normalize student document attachments — Cloudinary URLs only. */
 function normalizeDocuments(list) {
   if (!Array.isArray(list)) return [];
@@ -57,6 +102,7 @@ function serializeStudent(s) {
     prevSchool: s.prevSchool || '',
     medical: s.medical || '',
     notes: s.notes || '',
+    admissionExtras: normalizeAdmissionExtras(s.admissionExtras) || null,
     documents: normalizeDocuments(s.documents),
     status: s.status || 'Active',
     branchId: s.branchId || null,
@@ -265,6 +311,7 @@ async function createStudent(schoolId, input) {
       prevSchool: trimmed(input.prevSchool) || null,
       medical: trimmed(input.medical) || null,
       notes: trimmed(input.notes) || null,
+      admissionExtras: normalizeAdmissionExtras(input.admissionExtras),
       documents: normalizeDocuments(input.documents),
       status: trimmed(input.status) || 'Active',
     },
@@ -354,6 +401,7 @@ async function updateStudent(schoolId, id, input) {
   if (input.prevSchool !== undefined) data.prevSchool = trimmed(input.prevSchool);
   if (input.medical !== undefined) data.medical = trimmed(input.medical);
   if (input.notes !== undefined) data.notes = trimmed(input.notes);
+  if (input.admissionExtras !== undefined) data.admissionExtras = normalizeAdmissionExtras(input.admissionExtras);
   if (input.documents !== undefined) data.documents = normalizeDocuments(input.documents);
   if (input.status !== undefined) data.status = trimmed(input.status);
   if (input.branchId !== undefined) {

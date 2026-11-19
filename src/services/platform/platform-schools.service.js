@@ -11,6 +11,7 @@ const prisma = require('../../config/database').prisma;
 const logger = require('../../utils/logger');
 const { notFound, badRequest } = require('../../utils/errors');
 const schoolService = require('../school/school.service');
+const admissionFormConfigService = require('../admissions/admission-form-config.service');
 const subscriptionRules = require('../../utils/subscription');
 const {
   SUBSCRIPTION_PLAN,
@@ -113,6 +114,7 @@ async function getSchool(id) {
       instituteNo: true,
       logoUrl: true,
       isActive: true,
+      admissionFormConfig: true,
       createdAt: true,
       updatedAt: true,
       subscriptions: { orderBy: { createdAt: 'desc' } },
@@ -148,10 +150,15 @@ async function getSchool(id) {
 
   const now = new Date();
   const current = currentSubscription(school.subscriptions, now);
+  const admissionForm = admissionFormConfigService.normalizeConfig(school.admissionFormConfig, school);
 
   return {
     school: {
       ...schoolService.serializeSchool(school),
+      admissionForm: {
+        variant: admissionForm.variant,
+        enabled: admissionForm.variant === 'apl-legal-it',
+      },
       counts: school._count,
       branches: school.branches.map((b) => ({
         id: b.id,
@@ -291,6 +298,25 @@ async function extendTrial(id, days) {
   return getSchool(id);
 }
 
+/** Turn the A+ IT & Law admission form on or off for one school. */
+async function setAdmissionForm(id, enabled) {
+  if (typeof enabled !== 'boolean') {
+    throw badRequest('enabled must be true or false.');
+  }
+
+  const school = await assertSchool(id);
+  await admissionFormConfigService.updateAdmissionFormConfig(id, {
+    variant: enabled ? 'apl-legal-it' : 'standard',
+    instituteTitle: school.name,
+  });
+
+  logger.info(
+    `Platform ${enabled ? 'enabled' : 'disabled'} A+ admission form for school "${school.name}" (${id}).`
+  );
+
+  return getSchool(id);
+}
+
 /**
  * Put the school on MONTHLY or YEARLY from today.
  * Creates a new subscription row; older rows lapse naturally via selectCurrent.
@@ -329,4 +355,5 @@ module.exports = {
   setSchoolActive,
   extendTrial,
   setPlan,
+  setAdmissionForm,
 };

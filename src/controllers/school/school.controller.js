@@ -9,6 +9,7 @@
 const ApiResponse = require('../../utils/response');
 const asyncHandler = require('../../utils/async-handler');
 const schoolService = require('../../services/school/school.service');
+const admissionFormConfigService = require('../../services/admissions/admission-form-config.service');
 const cloudinaryService = require('../../services/cloudinary/cloudinary.service');
 const { badRequest } = require('../../utils/errors');
 
@@ -50,4 +51,25 @@ const uploadLogo = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getProfile, updateProfile, uploadLogo };
+/** GET /api/school/admission-form-config — standard vs institute-specific admission form. */
+const getAdmissionFormConfig = asyncHandler(async (req, res) => {
+  const result = await admissionFormConfigService.getAdmissionFormConfig(req.auth.schoolId);
+  return ApiResponse.ok(res, 'Admission form config loaded.', result);
+});
+
+/** PATCH /api/school/admission-form-config — set variant / labels for this school only. */
+const updateAdmissionFormConfig = asyncHandler(async (req, res) => {
+  const result = await admissionFormConfigService.updateAdmissionFormConfig(
+    req.auth.schoolId,
+    req.body || {},
+  );
+  return ApiResponse.ok(res, 'Admission form config updated.', result);
+});
+
+module.exports = {
+  getProfile,
+  updateProfile,
+  uploadLogo,
+  getAdmissionFormConfig,
+  updateAdmissionFormConfig,
+};
