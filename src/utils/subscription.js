@@ -1,12 +1,4 @@
-/**
- * Subscription rules — the single source of truth for trial windows, expiry and
- * the payload the frontend consumes.
- *
- * Status is DERIVED (not trusted from the DB) every time it is read, so a
- * school whose trial lapsed overnight is reported as EXPIRED without needing a
- * cron job. `persistedStatus` is used when writing the row so the stored value
- * is corrected lazily whenever the school signs in or loads /me.
- */
+
 
 const env = require('../config/env');
 const {
@@ -53,19 +45,12 @@ function deriveStatus(subscription, now = new Date()) {
     : SUBSCRIPTION_STATUS.ACTIVE;
 }
 
-/** Status as it should be persisted (keeps the column self-healing). */
 const persistedStatus = (subscription, now = new Date()) =>
   deriveStatus(subscription, now);
 
-/** A school may use the product while its subscription has not lapsed. */
 const hasAccess = (subscription, now = new Date()) =>
   deriveStatus(subscription, now) !== SUBSCRIPTION_STATUS.EXPIRED;
 
-/**
- * Pick the school's live subscription: the non-expired row with the furthest
- * expiry. Falls back to the most recent row so an expired school still sees
- * when it lapsed.
- */
 function selectCurrent(subscriptions, now = new Date()) {
   const rows = (subscriptions || []).filter(Boolean);
   if (rows.length === 0) return null;

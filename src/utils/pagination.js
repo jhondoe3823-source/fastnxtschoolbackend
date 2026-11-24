@@ -1,9 +1,4 @@
-/**
- * Pagination helpers for list endpoints.
- *
- * `parsePagination` reads ?page & ?pageSize (clamped) and `buildMeta` produces
- * the `meta` block attached to the response envelope.
- */
+
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;

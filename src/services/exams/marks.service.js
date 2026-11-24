@@ -314,6 +314,7 @@ async function saveMarks(schoolId, examId, input, auth) {
 async function listResults(schoolId, query = {}, auth) {
   const where = { schoolId };
   if (query.examId) where.examId = trimmed(query.examId);
+  if (query.studentId) where.studentId = trimmed(query.studentId);
   if (query.cls) where.cls = trimmed(query.cls);
   if (query.section) where.section = trimmed(query.section);
   if (query.branchId && query.branchId !== 'all') where.branchId = query.branchId;

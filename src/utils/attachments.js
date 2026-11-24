@@ -6,9 +6,6 @@ const { badRequest } = require('./errors');
 
 const trimmed = (value) => String(value ?? '').trim();
 
-/**
- * Accept [{ name, url, type?, size?, publicId? }] — reject data: URLs.
- */
 function normalizeCloudAttachments(list, { required = false, label = 'attachment' } = {}) {
   if (!Array.isArray(list)) {
     if (required) throw badRequest(`At least one ${label} is required.`);

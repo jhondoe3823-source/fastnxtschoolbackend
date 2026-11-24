@@ -579,6 +579,27 @@ async function listPayments(schoolId, query = {}) {
 
   const q = trimmed(query.q);
   if (q) {
+    const lower = q.toLowerCase();
+    const studentMatch = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { studentId: { contains: q, mode: 'insensitive' } },
+      { admissionNo: { contains: q, mode: 'insensitive' } },
+      { course: { contains: q, mode: 'insensitive' } },
+      { cls: { contains: q, mode: 'insensitive' } },
+    ];
+    if (lower === 'law' || lower === 'general') {
+      studentMatch.push({ admissionExtras: { path: ['category'], equals: 'law' } });
+      studentMatch.push({ admissionExtras: { path: ['category'], equals: 'general' } });
+    }
+    if (lower === 'it' || lower === 'nursing') {
+      studentMatch.push({ admissionExtras: { path: ['category'], equals: lower } });
+    }
+    const matchedStudents = await prisma.student.findMany({
+      where: { schoolId, OR: studentMatch },
+      select: { id: true },
+      take: 300,
+    });
+    const studentIds = matchedStudents.map((s) => s.id);
     where.OR = [
       { studentName: { contains: q, mode: 'insensitive' } },
       { studentCode: { contains: q, mode: 'insensitive' } },
@@ -586,6 +607,7 @@ async function listPayments(schoolId, query = {}) {
       { receiptNo: { contains: q, mode: 'insensitive' } },
       { invoiceNo: { contains: q, mode: 'insensitive' } },
       { reference: { contains: q, mode: 'insensitive' } },
+      ...(studentIds.length ? [{ studentId: { in: studentIds } }] : []),
     ];
   }
 

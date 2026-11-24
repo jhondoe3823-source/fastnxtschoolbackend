@@ -7,7 +7,7 @@ const { prisma } = require('../../config/database');
 const { badRequest, notFound } = require('../../utils/errors');
 const { looksLikeAplInstitute } = require('../admissions/admission-form-config.service');
 
-const CATEGORIES = new Set(['general', 'it', 'nursing']);
+const CATEGORIES = new Set(['general', 'law', 'it', 'nursing']);
 
 const APL_IT_COURSES = [
   'Web Design',
@@ -26,6 +26,11 @@ const APL_IT_COURSES = [
   'Graphic Design',
   'Front Desk Operator',
   'Computer Hardware',
+];
+
+const APL_LAW_COURSES = [
+  { name: 'LLB (5 Years)', duration: '5 years' },
+  { name: 'LLB (3 Years)', duration: '3 years' },
 ];
 
 const APL_NURSING_COURSES = [
@@ -55,6 +60,13 @@ async function ensureAplCourses(schoolId) {
   });
   const have = new Set(existing.map((row) => row.name.toLowerCase()));
   const missing = [
+    ...APL_LAW_COURSES.filter((row) => !have.has(row.name.toLowerCase())).map((row) => ({
+      schoolId,
+      name: row.name,
+      category: 'law',
+      duration: row.duration,
+      status: 'Active',
+    })),
     ...APL_IT_COURSES.filter((name) => !have.has(name.toLowerCase())).map((name) => ({
       schoolId,
       name,
@@ -95,7 +107,7 @@ async function createCourse(schoolId, input) {
   const name = trimmed(input.name);
   if (!name) throw badRequest('Course name is required.');
   const category = trimmed(input.category || 'general').toLowerCase();
-  if (!CATEGORIES.has(category)) throw badRequest('Course category must be general, it, or nursing.');
+  if (!CATEGORIES.has(category)) throw badRequest('Course category must be general, law, it, or nursing.');
 
   const duplicate = await prisma.course.findFirst({
     where: { schoolId, name: { equals: name, mode: 'insensitive' } },
@@ -126,7 +138,7 @@ async function updateCourse(schoolId, id, input) {
   }
   if (input.category !== undefined) {
     const category = trimmed(input.category).toLowerCase();
-    if (!CATEGORIES.has(category)) throw badRequest('Course category must be general, it, or nursing.');
+    if (!CATEGORIES.has(category)) throw badRequest('Course category must be general, law, it, or nursing.');
     data.category = category;
   }
   if (input.duration !== undefined) data.duration = trimmed(input.duration) || null;

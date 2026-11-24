@@ -1,11 +1,4 @@
-/**
- * Application errors.
- *
- * Services throw `AppError` (or one of the factories) and the error middleware
- * turns it into the standard response envelope. Anything that is *not* an
- * AppError is treated as a bug and reported as a generic 500 so internals never
- * leak to the client.
- */
+
 
 const { HTTP_STATUS, ERROR_CODES } = require('../constants');
 

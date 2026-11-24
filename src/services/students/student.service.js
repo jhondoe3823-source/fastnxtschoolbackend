@@ -42,7 +42,11 @@ function normalizeAdmissionExtras(raw) {
       : null;
 
   const category = trimmed(src.category).toLowerCase();
-  const admissionCategory = ['general', 'it', 'nursing'].includes(category) ? category : undefined;
+  const admissionCategory = category === 'general' || category === 'law'
+    ? 'law'
+    : ['it', 'nursing'].includes(category)
+      ? category
+      : undefined;
 
   return {
     category: admissionCategory,
@@ -50,6 +54,12 @@ function normalizeAdmissionExtras(raw) {
     cnic: trimmed(src.cnic) || undefined,
     guardianCnic: trimmed(src.guardianCnic) || undefined,
     altPhone: trimmed(src.altPhone) || undefined,
+    lawProgram: trimmed(src.lawProgram) || undefined,
+    lawDuration: trimmed(src.lawDuration) || undefined,
+    lawNote: trimmed(src.lawNote) || undefined,
+    latRollNo: trimmed(src.latRollNo) || undefined,
+    latScore: trimmed(src.latScore) || undefined,
+    latYear: trimmed(src.latYear) || undefined,
     nursingProgram: trimmed(src.nursingProgram) || undefined,
     nursingDuration: trimmed(src.nursingDuration) || undefined,
     nursingNote: trimmed(src.nursingNote) || undefined,
@@ -209,7 +219,8 @@ async function listStudents(schoolId, { q, cls, course, section, status, gender,
   if (session && session !== 'All') where.session = session;
 
   if (q) {
-    const query = trimmed(q).toLowerCase();
+    const query = trimmed(q);
+    const lower = query.toLowerCase();
     where.OR = [
       { name: { contains: query, mode: 'insensitive' } },
       { studentId: { contains: query, mode: 'insensitive' } },
@@ -218,7 +229,18 @@ async function listStudents(schoolId, { q, cls, course, section, status, gender,
       { father: { contains: query, mode: 'insensitive' } },
       { phone: { contains: query, mode: 'insensitive' } },
       { course: { contains: query, mode: 'insensitive' } },
+      { cls: { contains: query, mode: 'insensitive' } },
+      { admissionExtras: { path: ['category'], string_contains: lower } },
+      { admissionExtras: { path: ['lawProgram'], string_contains: query } },
+      { admissionExtras: { path: ['nursingProgram'], string_contains: query } },
     ];
+    if (lower === 'law' || lower === 'general') {
+      where.OR.push({ admissionExtras: { path: ['category'], equals: 'law' } });
+      where.OR.push({ admissionExtras: { path: ['category'], equals: 'general' } });
+    }
+    if (lower === 'it' || lower === 'nursing') {
+      where.OR.push({ admissionExtras: { path: ['category'], equals: lower } });
+    }
   }
 
   const students = await prisma.student.findMany({

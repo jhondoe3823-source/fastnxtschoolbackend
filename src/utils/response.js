@@ -1,13 +1,4 @@
-/**
- * Standardised API response envelope.
- *
- * Every endpoint answers with the same shape:
- *   success → { success: true,  message, data?, meta? }
- *   failure → { success: false, message, errors?, code? }
- *
- * `data` is always an object/array or null — never a bare primitive — so
- * clients can destructure defensively.
- */
+
 
 const { HTTP_STATUS } = require('../constants');
 

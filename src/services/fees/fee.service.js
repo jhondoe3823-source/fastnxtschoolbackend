@@ -381,6 +381,17 @@ async function listInvoices(schoolId, { q, cls, status, branchId } = {}) {
           { name: { contains: term, mode: 'insensitive' } },
           { studentId: { contains: term, mode: 'insensitive' } },
           { admissionNo: { contains: term, mode: 'insensitive' } },
+          { course: { contains: term, mode: 'insensitive' } },
+          { cls: { contains: term, mode: 'insensitive' } },
+          ...(term.toLowerCase() === 'law' || term.toLowerCase() === 'general'
+            ? [
+              { admissionExtras: { path: ['category'], equals: 'law' } },
+              { admissionExtras: { path: ['category'], equals: 'general' } },
+            ]
+            : []),
+          ...(term.toLowerCase() === 'it' || term.toLowerCase() === 'nursing'
+            ? [{ admissionExtras: { path: ['category'], equals: term.toLowerCase() } }]
+            : []),
         ],
       },
       select: { id: true },

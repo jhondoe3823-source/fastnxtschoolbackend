@@ -1,9 +1,4 @@
-/**
- * Tiny dependency-free logger with levels.
- *
- * Keeps request/DB noise quiet in tests and prevents `console.*` calls from
- * scattering across the codebase.
- */
+
 
 const env = require('../config/env');
 
