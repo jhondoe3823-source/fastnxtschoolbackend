@@ -93,6 +93,7 @@ model School {
   employees          Employee[]
   jobLetters         JobLetter[]
   classes            Class[]
+  courses            Course[]
   subjects           Subject[]
   subjectAssignments SubjectAssignment[]
   students           Student[]
@@ -410,6 +411,26 @@ model Class {
   @@map("classes")
 }
 
+/// Institute course catalog. Every school manages its own list.
+model Course {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  /// general | it | nursing
+  category  String   @default("general")
+  duration  String?
+  status    String   @default("Active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@index([category])
+  @@map("courses")
+}
+
 /// Daily student attendance — one row per student per calendar day.
 model StudentAttendance {
   id          String   @id @default(cuid())
@@ -562,6 +583,9 @@ model Student {
   session       String?  @default("2025-2026")
   cls           String // e.g. "Grade 1"
   classId       String?
+  /// Selected institute course, shown on the student list, ID card and admission letter.
+  course        String?
+  courseId      String?
   section       String // e.g. "A"
   father        String?
   mother        String?
@@ -584,6 +608,7 @@ model Student {
 
   @@index([schoolId])
   @@index([cls])
+  @@index([course])
   @@index([status])
   @@map("students")
 }
@@ -597,6 +622,7 @@ model AdmissionLetter {
   student     String
   admissionNo String
   cls         String
+  course      String?
   section     String
   date        String
   status      String   @default("Generated") // "Generated" | "Pending" | "Printed"

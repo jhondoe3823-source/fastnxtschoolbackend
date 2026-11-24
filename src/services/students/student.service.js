@@ -41,11 +41,18 @@ function normalizeAdmissionExtras(raw) {
         }
       : null;
 
+  const category = trimmed(src.category).toLowerCase();
+  const admissionCategory = ['general', 'it', 'nursing'].includes(category) ? category : undefined;
+
   return {
+    category: admissionCategory,
     formNo: trimmed(src.formNo) || undefined,
     cnic: trimmed(src.cnic) || undefined,
     guardianCnic: trimmed(src.guardianCnic) || undefined,
     altPhone: trimmed(src.altPhone) || undefined,
+    nursingProgram: trimmed(src.nursingProgram) || undefined,
+    nursingDuration: trimmed(src.nursingDuration) || undefined,
+    nursingNote: trimmed(src.nursingNote) || undefined,
     programOther: trimmed(src.programOther) || undefined,
     documentOther: trimmed(src.documentOther) || undefined,
     programs,
@@ -91,6 +98,8 @@ function serializeStudent(s) {
     session: s.session || '2025-2026',
     cls: s.cls,
     classId: s.classId || null,
+    course: s.course || '',
+    courseId: s.courseId || null,
     section: s.section || 'A',
     father: s.father || '',
     mother: s.mother || '',
@@ -119,6 +128,7 @@ function serializeAdmissionLetter(a) {
     student: a.student,
     admissionNo: a.admissionNo,
     cls: a.cls,
+    course: a.course || '',
     section: a.section,
     date: a.date,
     status: a.status || 'Generated',
@@ -188,10 +198,11 @@ async function ensureFamilyExists(schoolId, branchId, guardianName, phone, email
   }
 }
 
-async function listStudents(schoolId, { q, cls, section, status, gender, session, branchId } = {}) {
+async function listStudents(schoolId, { q, cls, course, section, status, gender, session, branchId } = {}) {
   const where = { schoolId };
   if (branchId && branchId !== 'all') where.branchId = branchId;
   if (cls && cls !== 'All') where.cls = cls;
+  if (course && course !== 'All') where.course = course;
   if (section && section !== 'All') where.section = section;
   if (status && status !== 'All') where.status = status;
   if (gender && gender !== 'All') where.gender = gender;
@@ -206,6 +217,7 @@ async function listStudents(schoolId, { q, cls, section, status, gender, session
       { guardian: { contains: query, mode: 'insensitive' } },
       { father: { contains: query, mode: 'insensitive' } },
       { phone: { contains: query, mode: 'insensitive' } },
+      { course: { contains: query, mode: 'insensitive' } },
     ];
   }
 
@@ -301,6 +313,8 @@ async function createStudent(schoolId, input) {
       session: trimmed(input.session) || '2025-2026',
       cls,
       classId: input.classId || null,
+      course: trimmed(input.course) || null,
+      courseId: trimmed(input.courseId) || null,
       section: trimmed(input.section) || 'A',
       father: trimmed(input.father) || null,
       mother: trimmed(input.mother) || null,
@@ -389,6 +403,8 @@ async function updateStudent(schoolId, id, input) {
   if (input.session !== undefined) data.session = trimmed(input.session);
   if (input.cls !== undefined) data.cls = trimmed(input.cls);
   if (input.classId !== undefined) data.classId = input.classId || null;
+  if (input.course !== undefined) data.course = trimmed(input.course) || null;
+  if (input.courseId !== undefined) data.courseId = trimmed(input.courseId) || null;
   if (input.section !== undefined) data.section = trimmed(input.section);
   if (input.father !== undefined) data.father = trimmed(input.father);
   if (input.mother !== undefined) data.mother = trimmed(input.mother);
@@ -497,6 +513,7 @@ async function listAdmissionLetters(schoolId, { q, status, branchId } = {}) {
       { student: { contains: query, mode: 'insensitive' } },
       { admissionNo: { contains: query, mode: 'insensitive' } },
       { cls: { contains: query, mode: 'insensitive' } },
+      { course: { contains: query, mode: 'insensitive' } },
     ];
   }
 
@@ -526,6 +543,7 @@ async function generateAdmissionLetter(schoolId, input) {
       student,
       admissionNo,
       cls,
+      course: trimmed(input.course) || null,
       section,
       date,
       status: 'Generated',

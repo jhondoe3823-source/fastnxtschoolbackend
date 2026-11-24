@@ -16,6 +16,7 @@ const complaintsRoutes = require('./complaints.routes');
 const employeesRoutes = require('./employees.routes');
 const jobLettersRoutes = require('./job-letters.routes');
 const classesRoutes = require('./classes.routes');
+const coursesRoutes = require('./courses.routes');
 const subjectsRoutes = require('./subjects.routes');
 const studentsRoutes = require('./students.routes');
 const familiesRoutes = require('./families.routes');
@@ -66,6 +67,12 @@ router.use('/job-letters', jobLettersRoutes);
 
 // Classes (grade/section) management routes
 router.use('/classes', classesRoutes);
+
+// GET    /api/courses
+// POST   /api/courses
+// PATCH  /api/courses/:id
+// DELETE /api/courses/:id
+router.use('/courses', coursesRoutes);
 
 // Subjects catalog and assignments routes
 router.use('/subjects', subjectsRoutes);

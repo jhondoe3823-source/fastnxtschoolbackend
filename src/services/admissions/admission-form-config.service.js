@@ -52,7 +52,10 @@ function looksLikeAplInstitute(school) {
   const name = String(school?.name || '').toUpperCase();
   const shortName = String(school?.shortName || '').toUpperCase();
   const hay = `${name} ${shortName}`;
-  if (hay.includes('A+ INSTITUTE') || hay.includes('A+ INSTITUTE IT')) return true;
+  const compact = hay.replace(/[^A-Z0-9]/g, '');
+  // "A Plus Institute", "A+ Institute", and the existing IT & Law name.
+  if (compact.includes('APLUSINSTITUT')) return true;
+  if (hay.includes('A+') && hay.includes('INSTITUT')) return true;
   if (hay.includes('IT & LAW') || hay.includes('IT AND LAW')) return true;
   if (hay.includes('APL-LEGAL') || hay.includes('APL LEGAL')) return true;
   return false;
