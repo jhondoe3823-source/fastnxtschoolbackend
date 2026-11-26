@@ -91,6 +91,7 @@ function serializeInvoice(r, extras = {}) {
     admissionNo: extras.admissionNo || r.admissionNo || null,
     cls: r.cls,
     section: r.section,
+    course: extras.course || null,
     session: r.session || extras.session || null,
     period: r.period,
     issue: r.issue,
@@ -113,7 +114,7 @@ async function attachStudentExtras(schoolId, invoices) {
   if (ids.length === 0) return invoices.map((r) => serializeInvoice(r));
   const students = await prisma.student.findMany({
     where: { schoolId, id: { in: ids } },
-    select: { id: true, admissionNo: true, studentId: true, session: true },
+    select: { id: true, admissionNo: true, studentId: true, session: true, course: true },
   });
   const byId = new Map(students.map((s) => [s.id, s]));
   return invoices.map((r) => {
@@ -122,6 +123,7 @@ async function attachStudentExtras(schoolId, invoices) {
       admissionNo: st?.admissionNo || null,
       studentCode: r.studentCode || st?.studentId || null,
       session: r.session || st?.session || null,
+      course: st?.course || null,
     });
   });
 }
@@ -419,6 +421,7 @@ async function createInvoice(schoolId, input) {
   let studentCode = trimmed(input.studentCode) || null;
   let cls = trimmed(input.cls);
   let section = trimmed(input.section);
+  let courseName = trimmed(input.course) || null;
   let branchId = input.branchId && input.branchId !== 'all' ? input.branchId : null;
   let session = trimmed(input.session) || null;
 
@@ -427,14 +430,16 @@ async function createInvoice(schoolId, input) {
     if (!st) throw badRequest('Student not found.');
     student = st.name;
     studentCode = st.studentId || null;
-    cls = st.cls;
-    section = st.section;
+    cls = st.cls || st.course || cls;
+    section = st.section || section || 'A';
+    courseName = st.course || courseName;
     branchId = branchId || st.branchId || null;
     if (!session) session = st.session || null;
   }
 
   if (!student) throw badRequest('Student is required.');
-  if (!cls) throw badRequest('Class is required.');
+  if (!cls && courseName) cls = courseName;
+  if (!cls) throw badRequest('Class / Course is required.');
   if (!section) throw badRequest('Section is required.');
 
   const period = trimmed(input.period) || new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
@@ -444,8 +449,8 @@ async function createInvoice(schoolId, input) {
   if (!session) session = '2025-2026';
   let lines = Array.isArray(input.lines) ? input.lines : [];
 
-  // Prefer class fee structure amounts over catalog (particular) defaults.
-  // Particulars are templates (often amount 0); structure holds per-class fees.
+  // Prefer class/course fee structure amounts over catalog (particular) defaults.
+  // Particulars are templates (often amount 0); structure holds per-class/course fees.
   if (lines.length === 0 && (input.useStructure || (Array.isArray(input.particularIds) && input.particularIds.length))) {
     let structure = await prisma.feeStructure.findMany({
       where: { schoolId, session, cls, section },
@@ -460,6 +465,22 @@ async function createInvoice(schoolId, input) {
         seen.add(key);
         return true;
       });
+    }
+    // Course-named structure fallback when class label differs from course.
+    if (structure.length === 0 && courseName && courseName !== cls) {
+      structure = await prisma.feeStructure.findMany({
+        where: { schoolId, session, cls: courseName, section },
+      });
+      if (structure.length === 0) {
+        const all = await prisma.feeStructure.findMany({ where: { schoolId, session, cls: courseName } });
+        const seen = new Set();
+        structure = all.filter((s) => {
+          const key = s.particularId || s.particular;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
     }
 
     if (Array.isArray(input.particularIds) && input.particularIds.length) {
@@ -627,11 +648,13 @@ const DEFAULT_VOUCHER_TEMPLATE = {
   title: 'FEE VOUCHER',
   headerNote: '',
   footerNote: 'This is a computer-generated fee voucher. Please retain for your records.',
-  instructions: 'Deposit the amount in the designated bank and submit the school copy at the accounts office.',
+  instructions: 'Deposit the amount in the designated bank and submit the school copy at the accounts office. Parents can also scan the QR for payment details.',
   bankName: '',
   bankAccountTitle: '',
   bankAccountNo: '',
   bankBranch: '',
+  paymentMobile: '',
+  paymentLink: '',
   signatureLeft: 'Received By',
   signatureCenter: 'Cashier',
   signatureRight: 'Authorized Signatory',
@@ -645,6 +668,8 @@ const DEFAULT_VOUCHER_TEMPLATE = {
   showWebsite: true,
   showDiscount: true,
   showPaidBalance: true,
+  showPaymentQr: true,
+  showInvoiceBarcode: true,
   accentColor: '#1e3a8a',
 };
 
@@ -660,6 +685,10 @@ function normalizeVoucherTemplate(raw) {
     showWebsite: src.showWebsite !== false,
     showDiscount: src.showDiscount !== false,
     showPaidBalance: src.showPaidBalance !== false,
+    showPaymentQr: src.showPaymentQr !== false,
+    showInvoiceBarcode: src.showInvoiceBarcode !== false,
+    paymentMobile: trimmed(src.paymentMobile) || '',
+    paymentLink: trimmed(src.paymentLink) || '',
   };
 }
 

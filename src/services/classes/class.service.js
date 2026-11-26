@@ -63,6 +63,19 @@ async function listTeachers(schoolId, branchId) {
 }
 
 async function listClasses(schoolId, { q, section, status, branchId } = {}) {
+  try {
+    const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { name: true, shortName: true } });
+    const courseService = require('../courses/course.service');
+    const { looksLikeAplInstitute } = require('../admissions/admission-form-config.service');
+    if (school && looksLikeAplInstitute(school)) {
+      await courseService.ensureAplCourses(schoolId);
+    } else {
+      await courseService.syncCourseClasses(schoolId);
+    }
+  } catch (err) {
+    logger.warn(`Course→class sync skipped for school ${schoolId}: ${err.message}`);
+  }
+
   const where = { schoolId };
 
   if (branchId && branchId !== 'all') {

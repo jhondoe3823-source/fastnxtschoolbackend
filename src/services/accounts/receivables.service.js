@@ -51,6 +51,15 @@ async function listReceivables(schoolId, { q, status, cls, section, branchId } =
     orderBy: { createdAt: 'desc' },
   });
 
+  const studentIds = [...new Set(invoices.map((inv) => inv.studentId).filter(Boolean))];
+  const students = studentIds.length
+    ? await prisma.student.findMany({
+        where: { schoolId, id: { in: studentIds } },
+        select: { id: true, course: true },
+      })
+    : [];
+  const courseByStudent = new Map(students.map((s) => [s.id, s.course || null]));
+
   const today = new Date().toISOString().slice(0, 10);
 
   const rows = invoices.map((inv) => {
@@ -69,6 +78,7 @@ async function listReceivables(schoolId, { q, status, cls, section, branchId } =
       sid: inv.studentCode || 'ST-' + inv.id.slice(-4),
       cls: inv.cls,
       section: inv.section,
+      course: (inv.studentId && courseByStudent.get(inv.studentId)) || null,
       invoice: inv.invoiceNo,
       dueDate: inv.due,
       total: inv.total,

@@ -54,6 +54,7 @@ function normalizeAdmissionExtras(raw) {
     cnic: trimmed(src.cnic) || undefined,
     guardianCnic: trimmed(src.guardianCnic) || undefined,
     altPhone: trimmed(src.altPhone) || undefined,
+    whatsapp: trimmed(src.whatsapp) || undefined,
     lawProgram: trimmed(src.lawProgram) || undefined,
     lawDuration: trimmed(src.lawDuration) || undefined,
     lawNote: trimmed(src.lawNote) || undefined,
@@ -311,14 +312,33 @@ async function createStudent(schoolId, input) {
   const name = trimmed(input.name || `${input.first || ''} ${input.last || ''}`.trim());
   if (!name) throw badRequest('Student name is required.');
 
-  const cls = trimmed(input.cls);
-  if (!cls) throw badRequest('Class is required.');
+  let course = trimmed(input.course) || null;
+  let courseId = trimmed(input.courseId) || null;
+  if (courseId && !course) {
+    const catalog = await prisma.course.findFirst({ where: { id: courseId, schoolId } });
+    if (catalog) course = catalog.name;
+  }
+
+  let cls = trimmed(input.cls) || course;
+  if (!cls) throw badRequest('Class / Course is required.');
+  if (!course) course = cls;
+
+  try {
+    const courseService = require('../courses/course.service');
+    await courseService.syncCourseClasses(schoolId);
+  } catch (_) {
+    /* non-fatal — class list may already include the course */
+  }
 
   const count = await prisma.student.count({ where: { schoolId } });
   const studentId = trimmed(input.studentId) || `STD-${1000 + count + 1}`;
   const admissionNo = trimmed(input.admissionNo) || `ADM-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
   const admissionDate = trimmed(input.admissionDate) || new Date().toISOString().slice(0, 10);
   const branchId = input.branchId && input.branchId !== 'all' ? input.branchId : null;
+
+  const matchedClass = await prisma.class.findFirst({
+    where: { schoolId, name: { equals: cls, mode: 'insensitive' } },
+  });
 
   const student = await prisma.student.create({
     data: {
@@ -334,9 +354,9 @@ async function createStudent(schoolId, input) {
       photo: trimmed(input.photo) || null,
       session: trimmed(input.session) || '2025-2026',
       cls,
-      classId: input.classId || null,
-      course: trimmed(input.course) || null,
-      courseId: trimmed(input.courseId) || null,
+      classId: input.classId || matchedClass?.id || null,
+      course,
+      courseId: courseId || null,
       section: trimmed(input.section) || 'A',
       father: trimmed(input.father) || null,
       mother: trimmed(input.mother) || null,
@@ -427,6 +447,20 @@ async function updateStudent(schoolId, id, input) {
   if (input.classId !== undefined) data.classId = input.classId || null;
   if (input.course !== undefined) data.course = trimmed(input.course) || null;
   if (input.courseId !== undefined) data.courseId = trimmed(input.courseId) || null;
+  if (data.courseId && !data.course) {
+    const catalog = await prisma.course.findFirst({ where: { id: data.courseId, schoolId } });
+    if (catalog) data.course = catalog.name;
+  }
+  if (data.course && input.cls === undefined && !existing.cls) {
+    data.cls = data.course;
+  }
+  if ((data.cls || data.course) && input.classId === undefined) {
+    const className = data.cls || data.course || existing.cls;
+    const matchedClass = await prisma.class.findFirst({
+      where: { schoolId, name: { equals: className, mode: 'insensitive' } },
+    });
+    if (matchedClass) data.classId = matchedClass.id;
+  }
   if (input.section !== undefined) data.section = trimmed(input.section);
   if (input.father !== undefined) data.father = trimmed(input.father);
   if (input.mother !== undefined) data.mother = trimmed(input.mother);

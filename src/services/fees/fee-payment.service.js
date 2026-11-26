@@ -60,7 +60,7 @@ function serializeInvoice(r) {
   };
 }
 
-function serializePayment(p, { duplicate = false } = {}) {
+function serializePayment(p, { duplicate = false, course = null } = {}) {
   const school = p.schoolSnapshot && typeof p.schoolSnapshot === 'object' ? p.schoolSnapshot : {};
   const lines = Array.isArray(p.linesSnapshot) ? p.linesSnapshot : [];
   return {
@@ -75,6 +75,7 @@ function serializePayment(p, { duplicate = false } = {}) {
     admissionNo: p.admissionNo || null,
     cls: p.cls,
     section: p.section,
+    course: course || null,
     session: p.session || null,
     period: p.period,
     amount: p.amount,
@@ -621,8 +622,19 @@ async function listPayments(schoolId, query = {}) {
     }),
   ]);
 
+  const studentIds = [...new Set(rows.map((p) => p.studentId).filter(Boolean))];
+  const students = studentIds.length
+    ? await prisma.student.findMany({
+        where: { schoolId, id: { in: studentIds } },
+        select: { id: true, course: true },
+      })
+    : [];
+  const courseByStudent = new Map(students.map((s) => [s.id, s.course || null]));
+
   return {
-    payments: rows.map((p) => serializePayment(p)),
+    payments: rows.map((p) =>
+      serializePayment(p, { course: (p.studentId && courseByStudent.get(p.studentId)) || null })
+    ),
     meta: buildMeta({ page, pageSize }, total),
   };
 }

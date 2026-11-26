@@ -8,17 +8,14 @@ const logger = require('../../utils/logger');
 const DEFAULT_ROLES = [
   'Super Admin',
   'Owner',
-  'Principal',
+  'Admin',
   'Branch Admin',
-  'Academic Coordinator',
-  'Teacher',
+  'Account',
   'Accountant',
-  'HR Manager',
+  'Admission',
+  'HR',
   'Receptionist',
-  'Librarian',
-  'Transport Manager',
-  'Hostel Warden',
-  'Parent',
+  'Teacher',
   'Student',
 ];
 
@@ -26,9 +23,11 @@ const DEFAULT_ROLES = [
 function roleLookupKeys(roleName) {
   const name = String(roleName || '').trim();
   if (!name) return [];
-  if (name === 'Admin' || name === 'Administrator') {
-    return ['Super Admin', name];
-  }
+  if (name === 'Administrator') return ['Admin', name];
+  if (name === 'Accountant') return ['Account', 'Accountant'];
+  if (name === 'Account') return ['Account', 'Accountant'];
+  if (name === 'HR Manager') return ['HR', name];
+  if (name === 'Principal' || name === 'Academic Coordinator') return ['Admin', name];
   return [name];
 }
 

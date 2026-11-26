@@ -5,7 +5,6 @@ const env = require('../config/env');
 const COOKIE_NAME = env.cookie.name;
 const DEFAULT_MAX_AGE_DAYS = 30;
 
-/** Sign an access token for a user. */
 function signToken(payload) {
   return jwt.sign(payload, env.jwt.secret, { expiresIn: env.jwt.expiresIn });
 }
@@ -36,7 +35,6 @@ function clearSessionCookie(res) {
   res.clearCookie(COOKIE_NAME, cookieOptions());
 }
 
-/** Cookie first (browser), then `Authorization: Bearer` (API clients). */
 function readTokenFromRequest(req) {
   const fromCookie = req.cookies?.[COOKIE_NAME];
   if (fromCookie) return String(fromCookie).trim();

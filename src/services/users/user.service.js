@@ -94,8 +94,7 @@ async function createUser(schoolId, input) {
   const roleLower = role.toLowerCase();
   if (roleLower.includes('student')) panel = 'student';
   else if (roleLower.includes('teacher') || roleLower.includes('staff') || roleLower.includes('employee')) panel = 'teacher';
-  else if (roleLower.includes('admin') || roleLower.includes('owner') || roleLower.includes('principal')) panel = 'admin';
-  else panel = 'user';
+  else panel = 'admin';
 
   const user = await prisma.user.create({
     data: {

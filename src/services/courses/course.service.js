@@ -30,7 +30,7 @@ const APL_IT_COURSES = [
 
 const APL_LAW_COURSES = [
   { name: 'LLB (5 Years)', duration: '5 years' },
-  { name: 'LLB (3 Years)', duration: '3 years' },
+  { name: 'LLB (4 Years)', duration: '4 years' },
 ];
 
 const APL_NURSING_COURSES = [
@@ -51,6 +51,74 @@ function serializeCourse(course) {
     createdAt: course.createdAt,
     updatedAt: course.updatedAt,
   };
+}
+
+function courseClassCode(name) {
+  const compact = String(name || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '')
+    .slice(0, 8);
+  return compact || 'COURSE';
+}
+
+/**
+ * Keep a Class row for every Course so fee structure, attendance, timetable
+ * and teacher assignment can use the same class/section flow.
+ */
+async function syncCourseClasses(schoolId) {
+  const courses = await prisma.course.findMany({
+    where: { schoolId, status: 'Active' },
+    select: { name: true, category: true, duration: true },
+  });
+  if (!courses.length) return;
+
+  const classes = await prisma.class.findMany({
+    where: { schoolId },
+    select: { id: true, name: true, sections: true, description: true },
+  });
+  const byName = new Map(classes.map((row) => [row.name.toLowerCase(), row]));
+
+  for (const course of courses) {
+    const key = course.name.toLowerCase();
+    const existing = byName.get(key);
+    const description = [
+      'Synced from course catalog',
+      course.category ? `category: ${course.category}` : '',
+      course.duration ? `duration: ${course.duration}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    if (!existing) {
+      await prisma.class.create({
+        data: {
+          schoolId,
+          name: course.name,
+          code: courseClassCode(course.name),
+          session: '2025-2026',
+          sections: ['A'],
+          teacher: 'Unassigned',
+          students: 0,
+          description,
+          status: 'Active',
+        },
+      });
+      continue;
+    }
+
+    const sections = Array.isArray(existing.sections) ? existing.sections : [];
+    const needsSection = !sections.includes('A');
+    if (needsSection || !existing.description) {
+      await prisma.class.update({
+        where: { id: existing.id },
+        data: {
+          sections: needsSection ? [...sections, 'A'] : existing.sections,
+          description: existing.description || description,
+          status: 'Active',
+        },
+      });
+    }
+  }
 }
 
 async function ensureAplCourses(schoolId) {
@@ -81,14 +149,18 @@ async function ensureAplCourses(schoolId) {
       status: 'Active',
     })),
   ];
-  if (!missing.length) return;
-  await prisma.course.createMany({ data: missing });
+  if (missing.length) {
+    await prisma.course.createMany({ data: missing });
+  }
+  await syncCourseClasses(schoolId);
 }
 
 async function listCourses(schoolId, { q, category, status } = {}) {
   const school = await prisma.school.findUnique({ where: { id: schoolId } });
   if (school && looksLikeAplInstitute(school)) {
     await ensureAplCourses(schoolId);
+  } else {
+    await syncCourseClasses(schoolId);
   }
 
   const where = { schoolId };
@@ -123,6 +195,7 @@ async function createCourse(schoolId, input) {
       status: trimmed(input.status) || 'Active',
     },
   });
+  await syncCourseClasses(schoolId);
   return serializeCourse(course);
 }
 
@@ -148,9 +221,23 @@ async function updateCourse(schoolId, id, input) {
   if (data.name) {
     await prisma.student.updateMany({
       where: { schoolId, courseId: existing.id },
-      data: { course: course.name },
+      data: { course: course.name, cls: course.name },
     });
+    const matchedClass = await prisma.class.findFirst({
+      where: { schoolId, name: { equals: existing.name, mode: 'insensitive' } },
+    });
+    if (matchedClass) {
+      await prisma.class.update({
+        where: { id: matchedClass.id },
+        data: {
+          name: course.name,
+          code: courseClassCode(course.name),
+          description: matchedClass.description || `Synced from course catalog · category: ${course.category}`,
+        },
+      });
+    }
   }
+  await syncCourseClasses(schoolId);
   return serializeCourse(course);
 }
 
@@ -164,6 +251,8 @@ async function deleteCourse(schoolId, id) {
 module.exports = {
   APL_IT_COURSES,
   APL_NURSING_COURSES,
+  ensureAplCourses,
+  syncCourseClasses,
   listCourses,
   createCourse,
   updateCourse,
