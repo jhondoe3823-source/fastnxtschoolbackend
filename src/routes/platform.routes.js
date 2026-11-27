@@ -24,7 +24,7 @@ const loginLimiter = rateLimit({
   key: 'platform:login',
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+  message: 'Too many sign-in attempts. Please wait {wait} and try again.',
 });
 
 router.post('/auth/login', loginLimiter, controller.login);

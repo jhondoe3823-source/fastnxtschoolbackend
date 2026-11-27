@@ -111,6 +111,9 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/notices', noticesRoutes);
 router.use('/events', eventsRoutes);
 router.use('/meetings', meetingsRoutes);
+
+const onlineClassesRoutes = require('./online-classes.routes');
+router.use('/online-classes', onlineClassesRoutes);
 router.use('/transport', transportRoutes);
 router.use('/hostel', hostelRoutes);
 router.use('/timetable', timetableRoutes);

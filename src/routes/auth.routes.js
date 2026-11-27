@@ -21,14 +21,14 @@ const registerLimiter = rateLimit({
   key: 'auth:register',
   windowMs: 60 * 60 * 1000,
   max: 10,
-  message: 'Too many schools registered from this network. Please try again later.',
+  message: 'Too many schools registered from this network. Please wait {wait} and try again.',
 });
 
 const loginLimiter = rateLimit({
   key: 'auth:login',
   windowMs: 15 * 60 * 1000,
   max: 15,
-  message: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+  message: 'Too many sign-in attempts. Please wait {wait} and try again.',
 });
 
 router.post('/register', registerLimiter, validateRegister, controller.register);

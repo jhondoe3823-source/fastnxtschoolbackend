@@ -25,6 +25,8 @@ const MODULES = {
   DISCIPLINE: 'discipline',
   INVENTORY: 'inventory',
   COMMUNICATION: 'communication',
+  MEETINGS: 'meetings',
+  ONLINE_CLASSES: 'onlineclasses',
   TASKS: 'tasks',
   COMPLAINTS: 'complaints',
   REPORTS: 'reports',

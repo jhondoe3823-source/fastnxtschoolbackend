@@ -117,6 +117,16 @@ const env = {
     password: str('PLATFORM_ADMIN_PASSWORD', ''),
     cookieName: str('PLATFORM_COOKIE_NAME', 'bisons_platform_session'),
   },
+
+  /** Google Meet OAuth (user credentials). Leave blank to disable Meet creation. */
+  google: {
+    clientId: str('GOOGLE_CLIENT_ID'),
+    clientSecret: str('GOOGLE_CLIENT_SECRET'),
+    redirectUri: str(
+      'GOOGLE_REDIRECT_URI',
+      'http://localhost:5000/api/online-classes/google/callback'
+    ),
+  },
 };
 
 module.exports = env;

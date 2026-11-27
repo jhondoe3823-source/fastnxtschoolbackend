@@ -104,6 +104,8 @@ model School {
   notices            Notice[]
   events             Event[]
   meetings           Meeting[]
+  googleIntegrations GoogleIntegration[]
+  onlineClasses      OnlineClass[]
   vehicles           Vehicle[]
   transportRoutes    TransportRoute[]
   hostelRooms        HostelRoom[]
@@ -1654,5 +1656,124 @@ model InventoryItem {
   @@index([schoolId, branchId])
   @@index([schoolId, status])
   @@map("inventory_items")
+}
+
+/// Connected Google account used to create Meet spaces (per teacher or school admin).
+model GoogleIntegration {
+  id                   String    @id @default(cuid())
+  schoolId             String
+  /// User who connected Google (teacher or admin).
+  userId               String
+  googleEmail          String
+  googleAccountId      String?
+  encryptedAccessToken String
+  encryptedRefreshToken String
+  tokenExpiry          DateTime?
+  scopes               String    @default("")
+  connectionStatus     String    @default("Connected") // Connected | Expired | Revoked | Error
+  lastError            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, userId])
+  @@index([schoolId])
+  @@index([userId])
+  @@map("google_integrations")
+}
+
+/// Scheduled Google Meet online class tied to academic class/section/subject.
+model OnlineClass {
+  id                   String   @id @default(cuid())
+  schoolId             String
+  branchId             String?
+  teacherUserId        String
+  teacherName          String   @default("")
+  teacherEmployeeId    String?
+  cls                  String
+  section              String
+  subjectId            String?
+  subjectName          String   @default("")
+  title                String
+  description          String   @default("")
+  /// ISO datetime in UTC.
+  scheduledAt          DateTime
+  durationMinutes      Int      @default(45)
+  timezone             String   @default("Asia/Karachi")
+  /// Google Meet space resource name, e.g. spaces/xxx
+  meetingSpaceName     String?
+  meetingUrl           String?
+  meetingCode          String?
+  conferenceRecordName String?
+  status               String   @default("Scheduled") // Scheduled | Live | Completed | Cancelled
+  /// JSON array of student ids; empty = all students in class+section.
+  studentIds           Json?
+  cancelReason         String?
+  googleIntegrationId  String?
+  createdById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  school       School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  participants OnlineClassParticipant[]
+  syncLogs     OnlineClassAttendanceSync[]
+
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@index([schoolId, teacherUserId])
+  @@index([schoolId, scheduledAt])
+  @@index([schoolId, cls, section])
+  @@map("online_classes")
+}
+
+model OnlineClassParticipant {
+  id                         String    @id @default(cuid())
+  schoolId                   String
+  onlineClassId              String
+  studentId                  String?
+  studentName                String    @default("")
+  studentCode                String?
+  googleParticipantName      String?
+  googleParticipantIdentifier String?
+  googleDisplayName          String?
+  joinTime                   DateTime?
+  leaveTime                  DateTime?
+  attendedMinutes            Int       @default(0)
+  /// Present | Late | Absent | Partial | Pending Verification | Joined
+  attendanceStatus           String    @default("Pending Verification")
+  joinAttempts               Int       @default(0)
+  lastJoinAt                 DateTime?
+  manuallyVerified           Boolean   @default(false)
+  matchedBy                  String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  onlineClass OnlineClass @relation(fields: [onlineClassId], references: [id], onDelete: Cascade)
+
+  @@unique([onlineClassId, studentId])
+  @@index([schoolId])
+  @@index([onlineClassId])
+  @@index([studentId])
+  @@map("online_class_participants")
+}
+
+model OnlineClassAttendanceSync {
+  id               String   @id @default(cuid())
+  schoolId         String
+  onlineClassId    String
+  syncStatus       String   @default("Pending") // Pending | Running | Success | Partial | Failed
+  lastSyncedAt     DateTime?
+  recordsProcessed Int      @default(0)
+  errorMessage     String?
+  details          Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  onlineClass OnlineClass @relation(fields: [onlineClassId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([onlineClassId])
+  @@map("online_class_attendance_syncs")
 }
 

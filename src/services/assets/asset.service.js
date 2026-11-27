@@ -1,8 +1,3 @@
-/**
- * Asset service — CRUD for the capital-assets register.
- * Auto-generates asset tags (AST-XXXX) and posts purchase cost to accounting
- * (Payment voucher → Fixed Assets / Cash-Bank) when requested.
- */
 
 const { prisma } = require('../../config/database');
 const { notFound, badRequest } = require('../../utils/errors');
@@ -12,7 +7,6 @@ const accountService = require('../accounts/account.service');
 const trimmed = (val) => String(val ?? '').trim();
 const toInt = (val) => Math.max(0, Math.round(Number(val) || 0));
 
-/* ------------------------------------------------------------------ helpers */
 
 function serialize(r) {
   return {

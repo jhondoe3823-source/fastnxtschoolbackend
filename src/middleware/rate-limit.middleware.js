@@ -22,8 +22,38 @@ cleanupTimer.unref?.();
 
 const clientKey = (req, suffix) => `${req.ip || req.socket?.remoteAddress || 'unknown'}:${suffix}`;
 
+/** Human-readable wait label, e.g. "45 seconds" or "12 minutes". */
+function formatWait(seconds) {
+  const secs = Math.max(1, Math.ceil(Number(seconds) || 0));
+  if (secs < 60) {
+    return `${secs} second${secs === 1 ? '' : 's'}`;
+  }
+  const minutes = Math.ceil(secs / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
 /**
- * @param {{ windowMs?: number, max?: number, message?: string, key?: string }} options
+ * Build the client-facing message with an exact retry window.
+ * Supports `{wait}` in `message`, otherwise appends the wait hint.
+ */
+function messageWithWait(message, retryAfterSec) {
+  const wait = formatWait(retryAfterSec);
+  if (typeof message === 'function') {
+    return message(retryAfterSec, wait);
+  }
+  const base = String(message || 'Too many attempts.');
+  if (base.includes('{wait}')) {
+    return base.replaceAll('{wait}', wait);
+  }
+  const cleaned = base
+    .replace(/\s*Please (wait a few minutes and try again|try again later|try again in a few minutes)\.?$/i, '')
+    .trim()
+    .replace(/\.$/, '');
+  return `${cleaned || 'Too many attempts'}. Please wait ${wait} and try again.`;
+}
+
+/**
+ * @param {{ windowMs?: number, max?: number, message?: string | ((retryAfterSec: number, waitLabel: string) => string), key?: string }} options
  */
 function rateLimit({
   windowMs = 15 * 60 * 1000,
@@ -50,11 +80,11 @@ function rateLimit({
     if (bucket.count > max) {
       const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
       res.setHeader('Retry-After', String(retryAfter));
-      return ApiResponse.tooManyRequests(res, message);
+      return ApiResponse.tooManyRequests(res, messageWithWait(message, retryAfter));
     }
 
     return next();
   };
 }
 
-module.exports = { rateLimit };
+module.exports = { rateLimit, formatWait };
